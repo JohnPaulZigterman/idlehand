@@ -1,3 +1,7 @@
+/* =========================
+   CORE RESET
+========================= */
+
 * {
   box-sizing: border-box;
 }
@@ -7,46 +11,121 @@ body {
   font-family: Segoe UI, sans-serif;
   background: #04130f;
   color: #eee;
-  padding: 16px;
+
+  height: 100vh;
   overflow: hidden;
 }
 
+/* =========================
+   APP LAYOUT (NO SCROLL PAGE)
+========================= */
+
 .wrapper {
-  max-width: 1300px;
-  margin: auto;
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 100vh;
+
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
+
+header {
+  text-align: center;
+  padding: 6px 0;
+  flex-shrink: 0;
+}
+
+header h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+header .subtitle {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* chip display under title */
+.score {
+  font-size: 16px;
+  margin-top: 4px;
+  color: gold;
+  font-weight: bold;
+  transition: transform 0.15s ease;
+}
+
+.score.pop {
+  transform: scale(1.08);
+}
+
+/* =========================
+   MAIN GRID (LOCKS HEIGHT)
+========================= */
 
 .main-layout {
-  display: flex;
-  gap: 12px;
-}
-
-.left {
-  flex: 2;
-}
-
-.right {
   flex: 1;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+
+  min-height: 0;
 }
+
+/* columns */
+.left,
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* blackjack panel stays compact */
+.right {
+  max-width: 340px;
+}
+
+/* =========================
+   PANELS (ONLY SCROLL HERE)
+========================= */
 
 .panel {
+  flex: 1;
+  min-height: 0;
+
+  overflow: auto;
+  padding: 10px;
+  border-radius: 10px;
+
   background: #0f2f25;
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 10px;
   border: 1px solid rgba(255, 215, 0, 0.2);
 }
 
+.panel h2 {
+  font-size: 14px;
+  margin: 0 0 6px 0;
+  opacity: 0.9;
+}
+
+.upgrades-panel {
+  flex: 0 0 auto;
+  padding: 8px;
+}
+
+/* =========================
+   BUTTONS (COMPACT UI)
+========================= */
+
 .btn {
-  padding: 10px;
   border-radius: 8px;
   background: #1d3b30;
   color: white;
   border: none;
   cursor: pointer;
+
+  padding: 8px;
+  font-size: 12px;
 }
 
 .btn-row {
@@ -55,101 +134,185 @@ body {
   flex-wrap: wrap;
 }
 
+/* =========================
+   POKER AREA
+========================= */
+
+
+/* =========================
+   POKER AREA (SUMMARY MODE)
+========================= */
+
 #handsContainer {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   overflow-x: auto;
+  padding-bottom: 4px;
 }
 
+/* deck becomes a compact "summary card" */
 .deck {
-  min-width: 260px;
+  min-width: 190px;
+  max-height: 260px;
+  overflow-y: auto;
+
+  padding: 6px;
+  border-radius: 8px;
+
   background: #12352c;
-  padding: 10px;
-  border-radius: 10px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* deck header stays fixed */
+.deck > div:first-child {
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* =========================
-   HANDS
+   HANDS (NOW SUMMARY ROWS)
 ========================= */
 
 .hand {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+
   gap: 6px;
-  justify-content: center;
-  margin-top: 8px;
+  padding: 4px 0;
+
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+/* make cards secondary visual indicators */
+.hand .card {
+  width: 24px;
+  height: 32px;
+  border-radius: 4px;
+
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+/* reduce rank slightly but keep readable */
+.hand .card .rank {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+/* result text becomes primary info */
+.result {
+  font-size: 11px;
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 /* =========================
-   CARDS (FIXED VISIBILITY)
+   OPTIONAL: LIMIT VISUAL CLUTTER
+========================= */
+
+/* hide suit text on tiny cards (still color-coded) */
+.hand .card[data-suit]::after {
+  display: none;
+}
+
+/* =========================
+   CARD CORE (COMPACT + SCALABLE)
+========================= */
+
+/* =========================
+   COMPACT HIGH-READABILITY CARDS
+========================= */
+
+
+/* =========================
+   ULTRA COMPACT READABLE CARDS
 ========================= */
 
 .card {
-  width: 46px;
-  height: 64px;
-  border-radius: 8px;
+  width: 28px;
+  height: 38px;
+  border-radius: 5px;
 
-  background: white;            /* IMPORTANT FIX */
+  background: white;
   color: black;
 
   display: flex;
   align-items: center;
   justify-content: center;
-
   flex-direction: column;
-  font-weight: bold;
 
   position: relative;
-
-  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
   user-select: none;
+
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-/* rank (big center text) */
+/* MAIN VALUE — still very readable */
 .card .rank {
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 900;
   line-height: 1;
+  transform: translateY(-1px);
 }
 
-/* suit (bottom indicator) */
+/* SUIT LABEL (subtle but legible) */
 .card[data-suit]::after {
   content: attr(data-suit);
   position: absolute;
-  bottom: 4px;
-  font-size: 12px;
+  bottom: 2px;
+  font-size: 10px;
   opacity: 0.7;
 }
 
-/* suit coloring (applies to whole card text where needed) */
-.hearts {
-  color: red;
+/* tighten spacing in hands */
+.hand {
+  display: flex;
+  gap: 3px;          /* tighter */
+  justify-content: center;
+  margin-top: 6px;
 }
 
-.diamonds {
-  color: #007bff;
+/* suit colors */
+.hearts { color: red; }
+.diamonds { color: #007bff; }
+.clubs { color: green; }
+.spades { color: black; }
+
+/* =========================
+   DEAL ANIMATION
+========================= */
+
+.card.deal-in {
+  animation: dealIn 0.25s ease;
 }
 
-.clubs {
-  color: green;
-}
-
-.spades {
-  color: black;
+@keyframes dealIn {
+  0% {
+    transform: translateY(-12px) scale(0.95);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
 }
 
 /* =========================
-   BLACKJACK FLIP SYSTEM
+   BLACKJACK SYSTEM
 ========================= */
 
 .card-inner {
   width: 100%;
   height: 100%;
   position: relative;
+
   transform-style: preserve-3d;
   transition: transform 0.6s ease;
-}
-
-.card.flipped .card-inner {
-  transform: rotateY(180deg);
 }
 
 .card-face {
@@ -157,42 +320,42 @@ body {
   width: 100%;
   height: 100%;
   backface-visibility: hidden;
+
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+
+  border-radius: 6px;
 }
 
-/* front of blackjack card */
+/* front */
 .card-front {
   background: white;
   color: black;
 }
 
-/* back of blackjack card */
+/* back */
 .card-back {
   background: #111;
   color: #f5d36c;
   transform: rotateY(180deg);
 }
 
-/* =========================
-   STATES
-========================= */
+/* flip */
+.card.flipped .card-inner {
+  transform: rotateY(180deg);
+}
 
+/* dealer hidden card */
 .card.back {
   background: #111;
   color: #f5d36c;
 }
 
-.active-hand {
-  outline: 2px solid gold;
-  transform: scale(1.03);
+/* reveal animation */
+.card.reveal .card-inner {
+  animation: dealerFlip 0.4s ease;
 }
-
-/* =========================
-   DEALER ANIMATION
-========================= */
 
 @keyframes dealerFlip {
   0% {
@@ -205,68 +368,44 @@ body {
   }
 }
 
-.card.reveal .card-inner {
-  animation: dealerFlip 0.4s ease;
-}
-
+/* glow */
 .card.flipped {
   filter: drop-shadow(0 0 6px rgba(245, 211, 108, 0.2));
 }
 
-.card {
-width: 46px;
-height: 64px;
-position: relative;
-perspective: 800px;
+/* active hand */
+.active-hand {
+  outline: 2px solid gold;
+  transform: scale(1.03);
 }
 
-.card-inner {
-width: 100%;
-height: 100%;
-transition: transform 0.6s;
-transform-style: preserve-3d;
+/* =========================
+   THEMED SCROLLBARS (GLOBAL)
+========================= */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 215, 0, 0.35) rgba(15, 47, 37, 0.6);
 }
 
-.card-face {
-position: absolute;
-width: 100%;
-height: 100%;
-backface-visibility: hidden;
-display: flex;
-align-items: center;
-justify-content: center;
-border-radius: 8px;
+/* Chrome / Edge / Safari */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.card-back {
-background: #111;
-color: gold;
-transform: rotateY(180deg);
+*::-webkit-scrollbar-track {
+  background: rgba(15, 47, 37, 0.6);
+  border-radius: 10px;
 }
 
-.card-front {
-background: white;
-color: black;
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 215, 0, 0.35);
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
-.flip-reveal .card-inner {
-transform: rotateY(180deg);
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 215, 0, 0.55);
 }
-
-.deal-card {
-animation: dealIn 0.35s ease forwards;
-opacity: 0;
-transform: translateY(20px);
-}
-
-@keyframes dealIn {
-to {
-opacity: 1;
-transform: translateY(0);
-}
-}
-
-.hidden-card .card-front {
-display: none;
-}
-

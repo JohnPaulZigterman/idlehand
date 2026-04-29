@@ -129,7 +129,7 @@ setTimeout(() => chip.remove(), 900);
 }
 }
 
-// ---------------- DEALER / CASINO FEEL HELPERS ----------------
+// ---------------- DEALER / CASINO HELPERS ----------------
 function delay(ms) {
 return new Promise(res => setTimeout(res, ms));
 }
@@ -203,7 +203,7 @@ else if (groups[0] === 2) name = "One Pair";
 return { name };
 }
 
-// ---------------- POKER (UNCHANGED CORE) ----------------
+// ---------------- POKER ----------------
 function upgradeDeck(i) {
 let d = game.decks[i];
 if (d.hands >= d.maxHands || game.chips < d.handCost) return;
@@ -256,7 +256,7 @@ dealBtn.disabled = false;
 }, 300);
 }
 
-// ---------------- POKER RENDER (UNCHANGED) ----------------
+// ---------------- POKER RENDER ----------------
 function render(data = lastRenderData) {
 
 const wrap = document.querySelector("#handsContainer");
@@ -301,7 +301,7 @@ wrap.appendChild(deck);
 }
 
 // =====================================================
-// 🃏 BLACKJACK (CASINO STYLE UPGRADE)
+// 🃏 BLACKJACK (CASINO UPGRADE)
 // =====================================================
 
 let bj = {
@@ -340,12 +340,11 @@ aces--;
 return soft !== total ? `${soft}/${total}` : `${total}`;
 }
 
-// ---------------- CASINO-STYLE RENDER ----------------
+// ---------------- BLACKJACK RENDER ----------------
 function renderBJ(revealDealer = false) {
 
 if (!bjPlayer || !bjDealer) return;
 
-// ---------------- PLAYER (UNCHANGED STYLE) ----------------
 bjPlayer.innerHTML = `
 <div class="bj-label">Player (${bjScore(bj.player)})</div>
 <div class="hand">
@@ -357,42 +356,38 @@ ${bj.player.map(c => `
 </div>
 `;
 
-// ---------------- DEALER (FULL HAND SYSTEM) ----------------
 bjDealer.innerHTML = `
 <div class="bj-label">
 Dealer (${(bj.active && !revealDealer) ? "?" : bjScore(bj.dealer)})
 </div>
-
 <div class="hand">
-
 ${bj.dealer.map((c, i) => {
-
 const isHole = i === 0 && bj.active && !revealDealer;
 
 return `
 <div class="card ${isHole ? "back" : c.suit}" data-suit="${isHole ? "" : suitIcon(c.suit)}">
 
 <div class="card-inner">
-
-<!-- FACE DOWN -->
-<div class="card-face card-back">
-${isHole ? "🂠" : ""}
-</div>
-
-<!-- FACE UP -->
+<div class="card-face card-back">${isHole ? "🂠" : ""}</div>
 <div class="card-face card-front">
-<div class="rank">
-${isHole ? "" : (c.value === 11 ? "A" : c.value)}
+<div class="rank">${isHole ? "" : (c.value === 11 ? "A" : c.value)}</div>
 </div>
 </div>
 
-</div>
 </div>
 `;
 }).join("")}
-
 </div>
 `;
+
+setTimeout(() => {
+document.querySelectorAll(".card").forEach(c => {
+c.classList.remove("deal-in");
+void c.offsetWidth;
+c.classList.add("deal-in");
+});
+}, 10);
+
 }
 
 // ---------------- START ----------------
@@ -407,7 +402,7 @@ bj.player = [drawCard(), drawCard()];
 bj.dealer = [drawCard(), drawCard()];
 
 renderBJ(false);
-updateBJControls(); // 👈 ADD THIS
+updateBJControls();
 updateScore();
 }
 
@@ -421,7 +416,7 @@ renderBJ(false);
 if (parseInt(bjScore(bj.player)) > 21) endBJ("lose");
 }
 
-// ---------------- STAND (DEALER REVEAL ANIMATION) ----------------
+// ---------------- STAND ----------------
 async function bjStand() {
 
 bj.revealing = true;
@@ -432,7 +427,7 @@ await delay(700);
 while (parseInt(bjScore(bj.dealer)) < 17) {
 bj.dealer.push(drawCard());
 renderBJ(true);
-await delay(400);
+await delay(650);
 }
 
 let p = parseInt(bjScore(bj.player));
@@ -475,7 +470,7 @@ bj.revealing = false;
 
 updateScore();
 renderBJ(true);
-updateBJControls(); // 👈 ADD THIS
+updateBJControls();
 }
 
 // ---------------- BUTTONS ----------------
@@ -538,13 +533,11 @@ const controls = document.querySelectorAll("#blackjackPanel .btn-row.center butt
 
 if (!controls.length) return;
 
-// If hand is NOT active → hide all actions
 if (!bj.active) {
 controls.forEach(b => b.style.display = "none");
 return;
 }
 
-// If hand is active → show actions
 controls.forEach(b => b.style.display = "inline-block");
 }
 
