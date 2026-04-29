@@ -16,6 +16,11 @@
 <p class="subtitle">Poker Idle Machine</p>
 </header>
 
+<div class="main-layout">
+
+<!-- LEFT SIDE: POKER -->
+<div class="left">
+
 <section class="panel">
 <h2>Global Upgrades</h2>
 
@@ -23,6 +28,7 @@
 <button id="buyAuto" class="btn">Unlock Auto</button>
 <button id="speedUpgrade" class="btn">Speed Upgrade</button>
 <button id="buyDeck" class="btn">Buy Deck</button>
+<button id="buyBlackjack" class="btn">Unlock Blackjack (500)</button>
 </div>
 </section>
 
@@ -41,6 +47,41 @@
 </div>
 
 </section>
+
+</div>
+
+<!-- RIGHT SIDE: BLACKJACK -->
+<div class="right" id="blackjackPanel" style="display:none;">
+
+<section class="panel">
+
+<h2>🃏 Blackjack Table</h2>
+
+<div class="btn-row">
+<input id="betInput" class="btn" type="number" placeholder="Bet chips">
+<button id="blackjackBtn" class="btn secondary">Deal Hand</button>
+</div>
+
+<div class="bj-section">
+<h3>Dealer</h3>
+<div id="bjDealer" class="hand"></div>
+</div>
+
+<div class="bj-section">
+<h3>Player</h3>
+<div id="bjPlayer" class="hand"></div>
+</div>
+
+<!-- IMPORTANT: added class hook only -->
+<div class="btn-row center">
+<button class="btn bj-control" onclick="bjHit()">Hit</button>
+<button class="btn bj-control" onclick="bjStand()">Stand</button>
+<button class="btn bj-control" onclick="bjDouble()">Double</button>
+</div>
+
+</section>
+
+</div>
 
 </div>
 
