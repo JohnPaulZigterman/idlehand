@@ -70,6 +70,11 @@ scoreEl.textContent = `💰 ${game.chips}`;
 updateButtons();
 }
 
+//BJBestScore
+function bjBestScore(hand) {
+  return Math.max(...bjScore(hand).split("/").map(Number));
+}
+
 // ---------------- BUTTONS ----------------
 function updateButtons() {
 buyAutoBtn.textContent =
@@ -83,11 +88,12 @@ speedBtn.disabled = game.chips < game.speedCost;
 buyDeckBtn.disabled = game.chips < game.deckCost;
 
 if (buyBlackjackBtn) {
-buyBlackjackBtn.disabled =
-game.blackjackUnlocked || game.chips < 500;
-
-buyBlackjackBtn.textContent =
-game.blackjackUnlocked ? "Blackjack Unlocked" : "Unlock Blackjack (500)";
+  if (game.blackjackUnlocked) {
+    buyBlackjackBtn.remove(); // 🔥 fully removes button from DOM
+  } else {
+    buyBlackjackBtn.disabled = game.chips < 500;
+    buyBlackjackBtn.textContent = "Unlock Blackjack (500)";
+  }
 }
 }
 
@@ -305,11 +311,12 @@ wrap.appendChild(deck);
 // =====================================================
 
 let bj = {
-player: [],
-dealer: [],
-active: false,
-wager: 0,
-revealing: false
+  hands: [],
+  dealer: [],
+  active: false,
+  wager: 0,
+  revealing: false,
+  currentHand: 0
 };
 
 function drawCard() {
@@ -346,14 +353,25 @@ function renderBJ(revealDealer = false) {
 if (!bjPlayer || !bjDealer) return;
 
 bjPlayer.innerHTML = `
-<div class="bj-label">Player (${bjScore(bj.player)})</div>
-<div class="hand">
-${bj.player.map(c => `
-<div class="card ${c.suit}" data-suit="${suitIcon(c.suit)}">
-<div class="rank">${c.value === 11 ? "A" : c.value}</div>
-</div>
+<div class="bj-label">Player</div>
+
+${bj.hands.map((h, i) => `
+  <div class="bj-hand-wrapper ${i === bj.currentHand ? "active-hand" : ""}">
+    
+    <div class="bj-hand-value">
+      ${bjScore(h.cards)}
+    </div>
+
+    <div class="hand">
+      ${h.cards.map(c => `
+        <div class="card ${c.suit}" data-suit="${suitIcon(c.suit)}">
+          <div class="rank">${c.value === 11 ? "A" : c.value}</div>
+        </div>
+      `).join("")}
+    </div>
+
+  </div>
 `).join("")}
-</div>
 `;
 
 bjDealer.innerHTML = `
@@ -392,51 +410,87 @@ c.classList.add("deal-in");
 
 // ---------------- START ----------------
 function startBJ(wager) {
-if (bj.active || game.chips < wager) return;
+  if (bj.active || game.chips < wager) return;
 
-game.chips -= wager;
-bj.active = true;
-bj.wager = wager;
+  game.chips -= wager;
+  bj.active = true;
+  bj.wager = wager;
+  bj.currentHand = 0;
 
-bj.player = [drawCard(), drawCard()];
-bj.dealer = [drawCard(), drawCard()];
+  bj.hands = [{
+    cards: [drawCard(), drawCard()],
+    done: false,
+    busted: false
+  }];
 
-renderBJ(false);
-updateBJControls();
-updateScore();
+  bj.dealer = [drawCard(), drawCard()];
+
+  renderBJ(false);
+  updateBJControls();
+  updateScore();
 }
 
 // ---------------- HIT ----------------
 function bjHit() {
-if (!bj.active) return;
+  if (!bj.active) return;
 
-bj.player.push(drawCard());
-renderBJ(false);
+  let hand = bj.hands[bj.currentHand];
+  hand.cards.push(drawCard());
 
-if (parseInt(bjScore(bj.player)) > 21) endBJ("lose");
+  if (bjBestScore(hand.cards) > 21) {
+    hand.busted = true;
+    hand.done = true;
+  }
+
+  renderBJ(false);
 }
 
 // ---------------- STAND ----------------
 async function bjStand() {
+  bj.hands[bj.currentHand].done = true;
 
-bj.revealing = true;
-renderBJ(true);
+  // move to next hand
+  let next = bj.hands.findIndex(h => !h.done);
 
-await delay(700);
+  if (next !== -1) {
+    bj.currentHand = next;
+    renderBJ(false);
+    return;
+  }
 
-while (parseInt(bjScore(bj.dealer)) < 17) {
-bj.dealer.push(drawCard());
-renderBJ(true);
-await delay(650);
-}
+  // all hands done → dealer plays
+  bj.revealing = true;
+  renderBJ(true);
 
-let p = parseInt(bjScore(bj.player));
-let d = parseInt(bjScore(bj.dealer));
+  await delay(700);
 
-if (p > 21) return endBJ("lose");
-if (d > 21 || p > d) return endBJ("win");
-if (p === d) return endBJ("push");
-return endBJ("lose");
+  while (parseInt(bjScore(bj.dealer)) < 17) {
+    bj.dealer.push(drawCard());
+    renderBJ(true);
+    await delay(650);
+  }
+
+  let dealerScore = parseInt(bjScore(bj.dealer));
+
+  let payout = 0;
+
+  for (let h of bj.hands) {
+    let playerScore = parseInt(bjScore(h.cards));
+
+    if (h.busted) continue;
+    if (playerScore > 21) continue;
+
+    if (dealerScore > 21 || playerScore > dealerScore) {
+      payout += bj.wager * 2;
+    } else if (playerScore === dealerScore) {
+      payout += bj.wager;
+    }
+  }
+
+  game.chips += payout;
+  toast(`🃏 Payout: ${payout}`);
+
+  endBJ();
 }
 
 // ---------------- DOUBLE ----------------
@@ -448,6 +502,28 @@ bj.wager *= 2;
 
 bjHit();
 bjStand();
+}
+
+//SPLIT
+function bjSplit() {
+  const hand = bj.hands[bj.currentHand];
+  if (!hand || hand.cards.length !== 2) return;
+
+  const [c1, c2] = hand.cards;
+
+  if (c1.value !== c2.value) return;
+  if (game.chips < bj.wager) return;
+
+  game.chips -= bj.wager;
+
+  bj.hands.splice(bj.currentHand, 1, 
+    { cards: [c1, drawCard()], done: false, busted: false },
+    { cards: [c2, drawCard()], done: false, busted: false }
+  );
+
+  renderBJ(false);
+  updateScore();
+  updateBJControls();
 }
 
 // ---------------- END ----------------
@@ -529,16 +605,24 @@ startBJ(parseInt(betInput.value || 0));
 }
 
 function updateBJControls() {
-const controls = document.querySelectorAll("#blackjackPanel .btn-row.center button");
+  const splitBtn = document.querySelector(".bj-control[onclick='bjSplit()']");
 
-if (!controls.length) return;
+  if (!bj.active) {
+    document.querySelectorAll(".bj-control").forEach(b => b.style.display = "none");
+    return;
+  }
 
-if (!bj.active) {
-controls.forEach(b => b.style.display = "none");
-return;
-}
+  document.querySelectorAll(".bj-control").forEach(b => b.style.display = "inline-block");
 
-controls.forEach(b => b.style.display = "inline-block");
+  const hand = bj.hands[bj.currentHand];
+
+  if (splitBtn) {
+    splitBtn.style.display =
+      hand.cards.length === 2 &&
+      hand.cards[0].value === hand.cards[1].value
+        ? "inline-block"
+        : "none";
+  }
 }
 
 window.bjHit = bjHit;

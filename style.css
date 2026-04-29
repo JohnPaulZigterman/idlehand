@@ -409,3 +409,14 @@ header .subtitle {
 *::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 215, 0, 0.55);
 }
+
+.bj-hand-wrapper {
+  margin-bottom: 10px;
+}
+
+.bj-hand-value {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 4px;
+  color: gold;
+}
