@@ -264,46 +264,49 @@ dealBtn.disabled = false;
 
 // ---------------- POKER RENDER ----------------
 function render(data = lastRenderData) {
+  const wrap = document.querySelector("#handsContainer");
+  wrap.innerHTML = "";
 
-const wrap = document.querySelector("#handsContainer");
-wrap.innerHTML = "";
+  data.forEach((obj, i) => {
+    const deck = document.createElement("div");
+    deck.className = "deck";
 
-data.forEach((obj, i) => {
+    // ✅ 1. Upgrade button FIRST
+    const up = document.createElement("button");
+    up.className = "btn deck-upgrade sticky-upgrade";
+    up.textContent = "Upgrade Hand";
+    up.onclick = () => upgradeDeck(i);
+    deck.appendChild(up);
 
-let deck = document.createElement("div");
-deck.className = "deck";
+    // ✅ 2. Header
+    const header = document.createElement("div");
+    header.innerHTML = `
+      <div>${obj.deck.emoji} ${obj.deck.type}</div>
+      <div>Hands ${obj.deck.hands}/8</div>
+    `;
+    deck.appendChild(header);
 
-deck.innerHTML = `
-<div>${obj.deck.emoji} ${obj.deck.type}</div>
-<div>Hands ${obj.deck.hands}/8</div>
-`;
+    // ✅ 3. Hands
+    obj.hands.forEach(handObj => {
+      const row = document.createElement("div");
 
-obj.hands.forEach(handObj => {
+      row.innerHTML = `
+        <div class="hand">
+          ${handObj.hand.map(card => `
+            <div class="card ${card.suit}" data-suit="${suitIcon(card.suit)}">
+              <div class="rank">${card.rank}</div>
+            </div>
+          `).join("")}
+        </div>
+        <div class="result">${handObj.result.name}</div>
+      `;
 
-let row = document.createElement("div");
+      deck.appendChild(row);
+    });
 
-row.innerHTML = `
-<div class="hand">
-${handObj.hand.map(card => `
-<div class="card ${card.suit}" data-suit="${suitIcon(card.suit)}">
-<div class="rank">${card.rank}</div>
-</div>
-`).join("")}
-</div>
-<div class="result">${handObj.result.name}</div>
-`;
-
-deck.appendChild(row);
-});
-
-let up = document.createElement("button");
-up.className = "btn deck-upgrade";
-up.textContent = "Upgrade Hand";
-up.onclick = () => upgradeDeck(i);
-
-deck.appendChild(up);
-wrap.appendChild(deck);
-});
+    // ✅ 4. Add deck ONCE
+    wrap.appendChild(deck);
+  });
 }
 
 // =====================================================
