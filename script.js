@@ -347,6 +347,18 @@ aces--;
 return soft !== total ? `${soft}/${total}` : `${total}`;
 }
 
+function checkBust(hand) {
+  const score = parseInt(bjScore(hand.cards));
+
+  if (score > 21) {
+    hand.busted = true;
+    hand.done = true;
+    return true;
+  }
+
+  return false;
+}
+
 // ---------------- BLACKJACK RENDER ----------------
 function renderBJ(revealDealer = false) {
 
@@ -356,7 +368,7 @@ bjPlayer.innerHTML = `
 <div class="bj-label">Player</div>
 
 ${bj.hands.map((h, i) => `
-  <div class="bj-hand-wrapper ${i === bj.currentHand ? "active-hand" : ""}">
+  <div class="bj-hand-wrapper ${h.busted ? "busted" : ""} ${i === bj.currentHand ? "active-hand" : ""}">
     
     <div class="bj-hand-value">
       ${bjScore(h.cards)}
@@ -407,6 +419,10 @@ c.classList.add("deal-in");
 }, 10);
 
 }
+//Round Dead Checker
+function isRoundDead() {
+  return bj.hands.every(h => h.done || h.busted);
+}
 
 // ---------------- START ----------------
 function startBJ(wager) {
@@ -435,11 +451,30 @@ function bjHit() {
   if (!bj.active) return;
 
   let hand = bj.hands[bj.currentHand];
+  if (!hand || hand.done) return;
+
   hand.cards.push(drawCard());
 
-  if (bjBestScore(hand.cards) > 21) {
-    hand.busted = true;
-    hand.done = true;
+  if (checkBust(hand)) {
+    toast("💥 Bust!");
+
+    // FORCE AUTO-ADVANCE
+    setTimeout(() => {
+      let next = bj.hands.findIndex(h => !h.done && !h.busted);
+
+      if (next !== -1) {
+        bj.currentHand = next;
+      }
+
+      renderBJ(false);
+      updateBJControls();
+    }, 300);
+
+    if (isRoundDead()) {
+  bjStand(); // auto-resolve if everything is done
+}
+
+    return;
   }
 
   renderBJ(false);
@@ -450,7 +485,7 @@ async function bjStand() {
   bj.hands[bj.currentHand].done = true;
 
   // move to next hand
-  let next = bj.hands.findIndex(h => !h.done);
+    let next = bj.hands.findIndex(h => !h.done && !h.busted);
 
   if (next !== -1) {
     bj.currentHand = next;
@@ -605,24 +640,24 @@ startBJ(parseInt(betInput.value || 0));
 }
 
 function updateBJControls() {
-  const splitBtn = document.querySelector(".bj-control[onclick='bjSplit()']");
+  const hand = bj.hands[bj.currentHand];
+  const controls = document.querySelectorAll(".bj-control");
 
   if (!bj.active) {
-    document.querySelectorAll(".bj-control").forEach(b => b.style.display = "none");
+    controls.forEach(b => b.style.display = "none");
     return;
   }
 
-  document.querySelectorAll(".bj-control").forEach(b => b.style.display = "inline-block");
-
-  const hand = bj.hands[bj.currentHand];
-
-  if (splitBtn) {
-    splitBtn.style.display =
-      hand.cards.length === 2 &&
-      hand.cards[0].value === hand.cards[1].value
-        ? "inline-block"
-        : "none";
+  // ❌ If busted → only allow Stand (auto-skip feeling)
+  if (hand && hand.busted) {
+    controls.forEach(b => {
+      if (b.textContent === "Stand") b.style.display = "inline-block";
+      else b.style.display = "none";
+    });
+    return;
   }
+
+  controls.forEach(b => b.style.display = "inline-block");
 }
 
 window.bjHit = bjHit;

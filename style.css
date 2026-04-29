@@ -420,3 +420,8 @@ header .subtitle {
   margin-bottom: 4px;
   color: gold;
 }
+
+.busted {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
