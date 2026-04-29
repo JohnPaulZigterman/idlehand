@@ -1,34 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-    <title>Password Generator</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div class="wrapper">
-      <header>
-        <h1>Password Generator</h1>
-      </header>
-      <div class="card">
-        <div class="card-header">
-          <h2>Generate a Password</h2>
-        </div>
-        <div class="card-body">
-          <textarea
-            readonly
-            id="password"
-            placeholder="Your Secure Password"
-            aria-label="Generated Password"
-          ></textarea>
-        </div>
-        <div class="card-footer">
-          <button id="generate" class="btn">Generate Password</button>
-        </div>
-      </div>
-    </div>
-    <script src="script.js"></script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IdleHand Casino</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="wrapper">
+
+<header>
+<h1>♠ IdleHand Casino ♦</h1>
+<p class="subtitle">Poker Idle Machine</p>
+</header>
+
+<section class="panel">
+<h2>Global Upgrades</h2>
+
+<div class="btn-row">
+<button id="buyAuto" class="btn">Unlock Auto</button>
+<button id="speedUpgrade" class="btn">Speed Upgrade</button>
+<button id="buyDeck" class="btn">Buy Deck</button>
+</div>
+</section>
+
+<section class="panel">
+
+<div class="panel-header">
+<h2>Decks</h2>
+<div id="score" class="score">💰 0</div>
+</div>
+
+<div id="handsContainer"></div>
+
+<div class="btn-row center">
+<button id="generate" class="btn primary">Deal</button>
+<button id="auto" class="btn secondary hidden">Auto Deal</button>
+</div>
+
+</section>
+
+</div>
+
+<div id="toastContainer"></div>
+<div id="chipLayer"></div>
+
+<script src="script.js"></script>
+
+</body>
 </html>
