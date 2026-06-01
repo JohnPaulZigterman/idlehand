@@ -1145,7 +1145,7 @@ function renderDecks(animateWins = false) {
     deckEl.className = "deck";
     deckEl.innerHTML = `
       <div class="deck-header">
-        <span>${deck.type} Deck - ${deck.hands}/${deck.maxHands} hands</span>
+        <span>${deck.type} - ${deck.hands}/${deck.maxHands} hands</span>
         <div class="deck-actions">
           <button class="btn deck-upgrade" data-deck-index="${index}">+ Hand (${deck.handCost})</button>
           <button class="btn hotspin-upgrade" data-deck-index="${index}">${deck.hotspins > 0 ? `Hotspins x${deck.hotspins}` : "Unlock Hotspins"} (${deck.hotspinCost})</button>
