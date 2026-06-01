@@ -45,6 +45,7 @@ const APP_CONFIG = {
     deckHandCostGrowth: 1.55,
     hotspinCostBase: 2500,
     hotspinCostGrowth: 2.2,
+    deckVerticalHandsCost: 10000,
     deckAceCostBase: 900,
     deckAceCostGrowth: 1.45,
     deckRemoveLowestBaseCost: 650,
@@ -300,6 +301,8 @@ function createDeckTemplate(index = 1) {
     handCost: APP_CONFIG.upgrade.deckHandCost,
     hotspins: 0,
     hotspinCost: APP_CONFIG.upgrade.hotspinCostBase,
+    verticalHands: false,
+    verticalHandsCost: APP_CONFIG.upgrade.deckVerticalHandsCost,
     aceAddCost: APP_CONFIG.upgrade.deckAceCostBase,
     addedAces: 0,
     removeLowestCost: APP_CONFIG.upgrade.deckRemoveLowestBaseCost,
@@ -374,6 +377,8 @@ function sanitizeDeck(deck, index) {
     handCost: Math.max(1, Number(deck.handCost) || template.handCost),
     hotspins: Math.max(0, hotspinCount || 0),
     hotspinCost: Math.max(1, Number(deck.hotspinCost) || template.hotspinCost),
+    verticalHands: deck.verticalHands === true,
+    verticalHandsCost: Math.max(1, Number(deck.verticalHandsCost) || template.verticalHandsCost),
     aceAddCost: Math.max(1, Number(deck.aceAddCost) || template.aceAddCost),
     addedAces: Math.max(0, Math.floor(Number(deck.addedAces) || 0)),
     removeLowestCost: Math.max(1, Number(deck.removeLowestCost) || template.removeLowestCost),
@@ -648,6 +653,23 @@ function updateButtons() {
     if (!deck) return;
     button.disabled = game.chips < deck.hotspinCost;
     button.textContent = deck.hotspins > 0 ? `Hotspins x${deck.hotspins} (${deck.hotspinCost})` : `Unlock Hotspins (${deck.hotspinCost})`;
+  });
+
+  document.querySelectorAll(".vertical-hands-upgrade").forEach(button => {
+    const deck = game.decks[Number(button.dataset.deckIndex)];
+    if (!deck) return;
+    if (deck.verticalHands) {
+      button.disabled = true;
+      button.textContent = "Vertical Hands (Active)";
+      return;
+    }
+    if (deck.hands < 5) {
+      button.disabled = true;
+      button.textContent = "Need 5 Hands";
+      return;
+    }
+    button.disabled = game.chips < deck.verticalHandsCost;
+    button.textContent = `Vertical Hands (${deck.verticalHandsCost})`;
   });
 
   document.querySelectorAll(".ace-upgrade").forEach(button => {
@@ -997,12 +1019,27 @@ function simulateOfflinePokerGain(cycles) {
   for (let i = 0; i < sampleCycles; i++) {
     game.decks.forEach(deck => {
       const shoe = buildDeckForHand(deck);
+      const handRows = [];
       for (let handIndex = 0; handIndex < deck.hands; handIndex++) {
         const cards = Array.from({ length: APP_CONFIG.decks.handSize }, () => drawFromDeckRng(shoe, rng));
         const finalCards = deck.hotspins ? applyHotspinsSim(cards, shoe, rng, deck.hotspins) : cards;
+        handRows.push(finalCards);
         const handName = pokerHandName(finalCards);
         const payout = Math.ceil(pokerHandPayout(handName) * game.multiplier);
         sampleGain += payout;
+      }
+      if (deck.verticalHands && deck.hands >= APP_CONFIG.decks.handSize) {
+        for (let col = 0; col < APP_CONFIG.decks.handSize; col++) {
+          for (let start = 0; start + APP_CONFIG.decks.handSize <= deck.hands; start++) {
+            const cards = [];
+            for (let rowOffset = 0; rowOffset < APP_CONFIG.decks.handSize; rowOffset++) {
+              cards.push(handRows[start + rowOffset][col]);
+            }
+            const handName = pokerHandName(cards);
+            const payout = Math.ceil(pokerHandPayout(handName) * game.multiplier);
+            sampleGain += payout;
+          }
+        }
       }
     });
   }
@@ -1061,6 +1098,17 @@ function upgradeDeckHotspins(index) {
   notifyStateChanged("deck-hotspins");
 }
 
+function upgradeDeckVerticalHands(index) {
+  const deck = game.decks[index];
+  if (!deck || deck.verticalHands || deck.hands < 5 || !spend(deck.verticalHandsCost)) return;
+  ensureAudioReady();
+  playUpgradeClick();
+  deck.verticalHands = true;
+  toast(`${deck.type} unlocked Vertical Hands`);
+  renderDecks();
+  notifyStateChanged("deck-vertical-hands");
+}
+
 function upgradeDeckAces(index) {
   const deck = game.decks[index];
   if (!deck || !spend(deck.aceAddCost)) return;
@@ -1101,6 +1149,7 @@ function renderDecks(animateWins = false) {
         <div class="deck-actions">
           <button class="btn deck-upgrade" data-deck-index="${index}">+ Hand (${deck.handCost})</button>
           <button class="btn hotspin-upgrade" data-deck-index="${index}">${deck.hotspins > 0 ? `Hotspins x${deck.hotspins}` : "Unlock Hotspins"} (${deck.hotspinCost})</button>
+          <button class="btn vertical-hands-upgrade" data-deck-index="${index}">Vertical Hands (${deck.verticalHandsCost})</button>
           <button class="btn ace-upgrade" data-deck-index="${index}">Add Ace (${deck.aceAddCost})</button>
           <button class="btn trim-lowest-upgrade" data-deck-index="${index}">Remove Low Card (${deck.removeLowestCost})</button>
         </div>
@@ -1108,6 +1157,8 @@ function renderDecks(animateWins = false) {
     `;
 
     const shoe = buildDeckForHand(deck);
+    const handRows = [];
+    let deckRevealDelay = 0;
 
     for (let i = 0; i < deck.hands; i++) {
       const row = document.createElement("div");
@@ -1138,6 +1189,7 @@ function renderDecks(animateWins = false) {
       result.textContent = animateWins ? "..." : pokerResultText(handName, payout);
       row.appendChild(result);
       deckEl.appendChild(row);
+      handRows.push({ cards });
       let handChipDelay = 0;
 
       if (animateWins) {
@@ -1161,6 +1213,7 @@ function renderDecks(animateWins = false) {
         }
         handChipDelay = revealDelay + 220 * speedScale;
         longestAnimationMs = Math.max(longestAnimationMs, handChipDelay);
+        deckRevealDelay = Math.max(deckRevealDelay, handChipDelay);
 
         cardEls.forEach((cardEl, cardIndex) => {
           animatePokerCard(cardEl, firstRollCards[cardIndex], handDelay + cardIndex * 95 * speedScale, speedScale);
@@ -1206,6 +1259,58 @@ function renderDecks(animateWins = false) {
         deckPayouts[index] ||= { deckEl, payout: 0, chipDelay: 0 };
         deckPayouts[index].payout += payout;
         deckPayouts[index].chipDelay = Math.max(deckPayouts[index].chipDelay, handChipDelay);
+      }
+    }
+
+    if (deck.verticalHands && deck.hands >= APP_CONFIG.decks.handSize) {
+      let verticalIndex = 0;
+      const verticalRevealBase = animateWins ? deckRevealDelay : 0;
+      for (let col = 0; col < APP_CONFIG.decks.handSize; col++) {
+        for (let start = 0; start + APP_CONFIG.decks.handSize <= deck.hands; start++) {
+          const cards = [];
+          for (let rowOffset = 0; rowOffset < APP_CONFIG.decks.handSize; rowOffset++) {
+            cards.push(handRows[start + rowOffset].cards[col]);
+          }
+          const verticalDetails = pokerHandDetails(cards);
+          const verticalHandName = verticalDetails.name;
+          const verticalPayout = Math.ceil(pokerHandPayout(verticalHandName) * game.multiplier);
+
+          recordTelemetry("totalPokerHands", 1);
+          if (verticalPayout) {
+            recordTelemetry("chipsEarned", verticalPayout);
+            recordTelemetry("totalPokerPayout", verticalPayout);
+          }
+
+          const vRow = document.createElement("div");
+          vRow.className = "hand vertical-hand";
+          const vResult = document.createElement("span");
+          vResult.className = "result";
+          const prefix = `V${col + 1}.${start + 1}`;
+          vResult.textContent = animateWins ? "..." : `${prefix} ${pokerResultText(verticalHandName, verticalPayout)}`;
+          vRow.appendChild(vResult);
+          deckEl.appendChild(vRow);
+
+          const verticalRevealDelay = verticalRevealBase + verticalIndex * 70 * speedScale;
+          if (animateWins) {
+            setTimeout(() => {
+              vResult.textContent = `${prefix} ${pokerResultText(verticalHandName, verticalPayout)}`;
+              if (verticalPayout) {
+                vRow.classList.add("winning-hand");
+                if (verticalDetails.premium) {
+                  vRow.classList.add("premium-win");
+                  setTimeout(() => vRow.classList.remove("premium-win"), 1200);
+                }
+              }
+            }, verticalRevealDelay);
+          }
+
+          if (animateWins && verticalPayout) {
+            deckPayouts[index] ||= { deckEl, payout: 0, chipDelay: 0 };
+            deckPayouts[index].payout += verticalPayout;
+            deckPayouts[index].chipDelay = Math.max(deckPayouts[index].chipDelay, verticalRevealDelay + 220 * speedScale);
+          }
+          verticalIndex++;
+        }
       }
     }
 
@@ -1746,7 +1851,7 @@ function renderMiniGames() {
 
 function bindDeckControls() {
   handsContainer.addEventListener("click", event => {
-    const button = event.target.closest(".deck-upgrade, .hotspin-upgrade, .ace-upgrade, .trim-lowest-upgrade");
+    const button = event.target.closest(".deck-upgrade, .hotspin-upgrade, .vertical-hands-upgrade, .ace-upgrade, .trim-lowest-upgrade");
     if (!button || !handsContainer.contains(button)) return;
     const index = Number(button.dataset.deckIndex);
     if (!Number.isFinite(index)) return;
@@ -1755,6 +1860,8 @@ function bindDeckControls() {
       upgradeDeckHands(index);
     } else if (button.classList.contains("hotspin-upgrade")) {
       upgradeDeckHotspins(index);
+    } else if (button.classList.contains("vertical-hands-upgrade")) {
+      upgradeDeckVerticalHands(index);
     } else if (button.classList.contains("ace-upgrade")) {
       upgradeDeckAces(index);
     } else if (button.classList.contains("trim-lowest-upgrade")) {
