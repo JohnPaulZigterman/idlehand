@@ -21,13 +21,15 @@ body {
 ========================= */
 
 .wrapper {
-  max-width: 1200px;
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
+  padding: 0 6px;
   height: 100vh;
 
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 header {
@@ -68,11 +70,11 @@ header .subtitle {
   display: flex;
   align-content: flex-start;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   min-height: 0;
   overflow: auto;
-  padding: 0 8px 10px;
+  padding: 0 4px 8px;
 }
 
 .floating-group {
@@ -96,15 +98,15 @@ header .subtitle {
 
 .floating-panel {
   flex: 1 1 320px;
-  max-width: 560px;
-  min-width: 280px;
+  max-width: none;
+  min-width: 300px;
   max-height: calc(100vh - 112px);
   box-shadow: 0 14px 28px rgba(0,0,0,0.24);
 }
 
 .floating-panel#pokerPanel {
-  flex-basis: 560px;
-  max-width: 720px;
+  flex-basis: 700px;
+  max-width: none;
 }
 
 .panel h2 {
@@ -180,13 +182,13 @@ header .subtitle {
   border: none;
   cursor: pointer;
 
-  padding: 8px;
-  font-size: 12px;
+  padding: 6px 8px;
+  font-size: 11px;
 }
 
 .btn-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -200,20 +202,21 @@ header .subtitle {
 ========================= */
 
 #handsContainer {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 6px;
-  overflow-x: auto;
+  overflow: visible;
   padding-bottom: 4px;
 }
 
 /* deck becomes a compact "summary card" */
 .deck {
-  min-width: 166px;
-  max-height: 300px;
-  overflow-y: auto;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
 
-  padding: 5px;
-  border-radius: 7px;
+  padding: 4px;
+  border-radius: 6px;
 
   background: #12352c;
 
@@ -233,46 +236,66 @@ header .subtitle {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  min-height: 24px;
+  margin-bottom: 1px;
 }
 
 .deck-header span {
   min-width: 0;
+  flex: 1;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deck-header span,
+.deck-actions {
+  line-height: 1.1;
 }
 
 .deck-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
   flex: 0 0 auto;
+  width: 100%;
 }
 
 .deck-upgrade,
-.hotspin-upgrade {
+.hotspin-upgrade,
+.ace-upgrade,
+.trim-lowest-upgrade {
   flex: 0 0 auto;
-  padding: 4px 5px;
-  font-size: 9px;
+  width: 100%;
+  padding: 2px 3px;
+  font-size: 8px;
+  text-align: left;
   white-space: nowrap;
 }
 
 #handsContainer .hand {
   display: grid;
-  grid-template-columns: repeat(5, 18px) minmax(58px, 1fr);
+  grid-template-columns: repeat(5, 14px) minmax(48px, 1fr);
   align-items: center;
   justify-content: start;
-  gap: 2px;
-  margin-top: 0;
+  gap: 1px;
   padding: 1px 0;
-  min-height: 24px;
+  min-height: 20px;
+}
+
+#handsContainer .hand {
+  margin-top: 0;
 }
 
 #handsContainer .hand .card {
-  width: 18px;
-  height: 24px;
+  width: 14px;
+  height: 20px;
   border-radius: 3px;
 }
 
 #handsContainer .hand .card .rank {
-  font-size: 10px;
+  font-size: 7px;
 }
 
 #handsContainer .card.slot-rolling {
@@ -314,7 +337,8 @@ header .subtitle {
 
 #handsContainer .result {
   justify-self: end;
-  font-size: 9px;
+  max-width: 58px;
+  font-size: 7px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -377,19 +401,21 @@ header .subtitle {
    HANDS (NOW SUMMARY ROWS)
 ========================= */
 
-.hand {
+#handsContainer .hand {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.bj-hand-wrapper .hand {
   display: flex;
   align-items: center;
   justify-content: space-between;
 
   gap: 6px;
   padding: 4px 0;
-
-  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
 /* make cards secondary visual indicators */
-.hand .card {
+.bj-hand-wrapper .hand .card {
   width: 24px;
   height: 32px;
   border-radius: 4px;
@@ -398,7 +424,7 @@ header .subtitle {
 }
 
 /* reduce rank slightly but keep readable */
-.hand .card .rank {
+.bj-hand-wrapper .hand .card .rank {
   font-size: 13px;
   font-weight: 900;
 }
@@ -415,7 +441,7 @@ header .subtitle {
 ========================= */
 
 /* hide suit text on tiny cards (still color-coded) */
-.hand .card[data-suit]::after {
+.bj-hand-wrapper .hand .card[data-suit]::after {
   display: none;
 }
 
@@ -471,11 +497,11 @@ header .subtitle {
 }
 
 /* tighten spacing in hands */
-.hand {
+.bj-hand-wrapper .hand {
   display: flex;
   gap: 3px;          /* tighter */
   justify-content: center;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 /* suit colors */
@@ -928,5 +954,37 @@ input.btn {
     max-width: none;
     min-width: 0;
     max-height: none;
+  }
+
+  #handsContainer {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 5px;
+  }
+
+  .deck-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .deck {
+    padding: 3px;
+  }
+
+  #handsContainer .hand {
+    grid-template-columns: repeat(5, 13px) minmax(42px, 1fr);
+    min-height: 19px;
+  }
+
+  #handsContainer .hand .card {
+    width: 13px;
+    height: 18px;
+  }
+
+  #handsContainer .hand .card .rank {
+    font-size: 7px;
+  }
+
+  #handsContainer .result {
+    max-width: 50px;
+    font-size: 6.5px;
   }
 }

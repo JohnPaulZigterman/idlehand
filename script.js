@@ -1,41 +1,492 @@
-let game = {
-  chips: 9999999,
-  autoUnlocked: false,
-  autoRunning: false,
-  interval: 1200,
+"use strict";
 
-  autoCost: 50,
-  speedCost: 100,
-  speedLevel: 0,
-  maxSpeedLevel: 20,
-  deckCost: 250,
+const APP_CONFIG = {
+  appVersion: 4,
+  storageKey: "idlehand:state:v4",
+  forceFreshOnLoad: true,
+  saveDebounceMs: 700,
+  timing: {
+    baseAutoDelayMs: 1200,
+    minAutoDelayMs: 280,
+    autoDelayScale: 0.93,
+    toastMs: 1200,
+    offlineCatchupMaxCycles: 2500,
+    offlineSimulationSampleCycles: 320,
+    saveIntervalMs: 1200
+  },
+  animation: {
+    chipCount: {
+      burst: 90,
+      big: 60,
+      normal: 35,
+      deckBurst: 14,
+      deckBig: 24,
+      deckNormal: 16
+    },
+    chipBaseDurationMs: 900,
+    chipFloorMs: 360,
+    cardSpinMs: 55,
+    cardSettleMs: 180,
+    dealScaleMin: 0.35,
+    dealScaleDrop: 0.95
+  },
+  upgrade: {
+    autoCost: 50,
+    speedCost: 100,
+    speedCostGrowth: 1.22,
+    speedCostFlat: 15,
+    maxSpeedLevel: 20,
+    deckStartCost: 250,
+    deckCostGrowth: 1.75,
+    blackjackCost: 500,
+    plinkoCost: 750,
+    plinkoAutoCost: 1500,
+    deckHandCost: 75,
+    deckHandCostGrowth: 1.55,
+    hotspinCostBase: 2500,
+    hotspinCostGrowth: 2.2,
+    deckAceCostBase: 900,
+    deckAceCostGrowth: 1.45,
+    deckRemoveLowestBaseCost: 650,
+    deckRemoveLowestCostGrowth: 1.32
+  },
+  blackjack: {
+    initialChips: 0,
+    defaultBet: 25
+  },
+  decks: {
+    maxHands: 8,
+    handSize: 5
+  },
+  plinko: {
+    riskSettings: {
+      1: { edge: 2.25, center: 0.45, curve: 1.4 },
+      2: { edge: 5, center: 0.15, curve: 1.85 },
+      3: { edge: 11, center: 0, curve: 2.35 }
+    },
+    minLayers: 5,
+    maxLayers: 12,
+    defaultLayers: 7,
+    riskLabel: {
+      1: "Low",
+      2: "Medium",
+      3: "High"
+    },
+    initialBet: 25
+  },
+  payouts: {
+    poker: {
+      "High Card": 0,
+      "Pair": 2,
+      "Two Pair": 5,
+      "Three of a Kind": 10,
+      "Straight": 20,
+      "Flush": 25,
+      "Full House": 40,
+      "Four of a Kind": 80,
+      "Five of a Kind": 150,
+      "Flush Five": 450,
+      "Straight Flush": 150,
+      "Royal Flush": 300
+    }
+  },
+  telemetry: {
+    defaults: {
+      sessions: 1,
+      totalClicks: 0,
+      totalPokerCycles: 0,
+      totalPokerHands: 0,
+      totalPokerPayout: 0,
+      totalBlackjackWager: 0,
+      totalBlackjackPayout: 0,
+      totalBlackjackHands: 0,
+      totalPlinkoDrops: 0,
+      totalPlinkoPayout: 0,
+      totalOfflineCycles: 0,
+      totalOfflineEarnings: 0,
+      maxChipEver: 0,
+      chipsSpent: 0,
+      chipsEarned: 0,
+      lastUpdatedMs: 0
+    }
+  },
+  pokerHandRanks: {
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    J: 11,
+    Q: 12,
+    K: 13,
+    A: 14
+  }
+};
 
-  combo: 0,
-  multiplier: 1,
+function createEventBus() {
+  const listeners = new Map();
+  return {
+    on(eventName, handler) {
+      if (!listeners.has(eventName)) listeners.set(eventName, new Set());
+      listeners.get(eventName).add(handler);
+      return handler;
+    },
+    off(eventName, handler) {
+      const bucket = listeners.get(eventName);
+      if (!bucket) return;
+      bucket.delete(handler);
+    },
+    emit(eventName, payload = null) {
+      const bucket = listeners.get(eventName);
+      if (!bucket) return;
+      for (const handler of [...bucket]) {
+        try {
+          handler(payload);
+        } catch (error) {
+          console.error("[event-bus]", eventName, error);
+        }
+      }
+    }
+  };
+}
 
-  blackjackUnlocked: false,
-  blackjackCost: 500,
+function createTimerManager() {
+  const timeouts = new Set();
+  const intervals = new Set();
 
-  plinkoUnlocked: false,
-  plinkoCost: 750,
-  plinkoAutoUnlocked: false,
-  plinkoAutoRunning: false,
-  plinkoAutoCost: 1500,
+  return {
+    setTimeout(callback, delayMs) {
+      const id = window.setTimeout(() => {
+        timeouts.delete(id);
+        callback();
+      }, delayMs);
+      timeouts.add(id);
+      return id;
+    },
+    setInterval(callback, intervalMs) {
+      const id = window.setInterval(callback, intervalMs);
+      intervals.add(id);
+      return id;
+    },
+    clearTimeout(id) {
+      window.clearTimeout(id);
+      timeouts.delete(id);
+    },
+    clearInterval(id) {
+      window.clearInterval(id);
+      intervals.delete(id);
+    },
+    clearAll() {
+      for (const id of timeouts) window.clearTimeout(id);
+      for (const id of intervals) window.clearInterval(id);
+      timeouts.clear();
+      intervals.clear();
+    }
+  };
+}
 
-  decks: [{
-    type: "Normal",
+const SOUND = {
+  context: null,
+  master: null,
+  userPrimed: false
+};
+
+function primeAudio() {
+  if (SOUND.context || SOUND.master) return;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+
+  const context = new AudioCtx();
+  const master = context.createGain();
+  master.gain.value = 0.32;
+  master.connect(context.destination);
+
+  SOUND.context = context;
+  SOUND.master = master;
+}
+
+function ensureAudioReady() {
+  if (SOUND.userPrimed) return;
+  primeAudio();
+  SOUND.userPrimed = true;
+}
+
+function withAudio(callback) {
+  if (!SOUND.context || !SOUND.master) return;
+  if (SOUND.context.state === "suspended") {
+    SOUND.context.resume().then(callback).catch(() => {});
+    return;
+  }
+  callback();
+}
+
+function playTone({
+  startFrequency = 620,
+  endFrequency = startFrequency,
+  durationMs = 48,
+  type = "triangle",
+  gain = 0.026
+} = {}) {
+  if (!SOUND.context || !SOUND.master) return;
+  withAudio(() => {
+    const context = SOUND.context;
+    const now = context.currentTime;
+    const dur = Math.max(0.02, durationMs / 1000);
+    const gainNode = context.createGain();
+    const osc = context.createOscillator();
+
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(gain, now + 0.004);
+    gainNode.gain.exponentialRampToValueAtTime(0.0002, now + dur);
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(startFrequency, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, endFrequency), now + dur * 0.9);
+
+    osc.connect(gainNode);
+    gainNode.connect(SOUND.master);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  });
+}
+
+function playDealClick() {
+  playTone({ startFrequency: 560, endFrequency: 260, durationMs: 42, type: "triangle", gain: 0.18 });
+  playTone({ startFrequency: 210, endFrequency: 340, durationMs: 30, type: "square", gain: 0.11 });
+}
+
+function playUpgradeClick() {
+  playTone({ startFrequency: 760, endFrequency: 430, durationMs: 38, type: "triangle", gain: 0.15 });
+  playTone({ startFrequency: 290, endFrequency: 520, durationMs: 24, type: "square", gain: 0.09 });
+}
+
+function playCardOut() {
+  playTone({ startFrequency: 980, endFrequency: 540, durationMs: 32, type: "triangle", gain: 0.14 });
+}
+
+function playChipDrop() {
+  playTone({ startFrequency: 620, endFrequency: 860, durationMs: 46, type: "square", gain: 0.10 });
+}
+
+function createRng(seed) {
+  let value = seed >>> 0 || 1;
+  return {
+    next() {
+      value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
+      return value / 0x100000000;
+    },
+    nextInt(maxExclusive) {
+      return Math.floor(this.next() * maxExclusive);
+    }
+  };
+}
+
+function drawFromDeckRng(deck, rng) {
+  if (deck.length === 0) deck.push(...createStandardDeck());
+  const index = rng.nextInt(deck.length);
+  return deck.splice(index, 1)[0];
+}
+
+function createDeckTemplate(index = 1) {
+  return {
+    type: `Deck ${index}`,
     emoji: "S",
     hands: 1,
-    maxHands: 8,
-    handCost: 75,
-    hotspins: false,
-    hotspinCost: 2500
-  }],
+    maxHands: APP_CONFIG.decks.maxHands,
+    handCost: APP_CONFIG.upgrade.deckHandCost,
+    hotspins: 0,
+    hotspinCost: APP_CONFIG.upgrade.hotspinCostBase,
+    aceAddCost: APP_CONFIG.upgrade.deckAceCostBase,
+    addedAces: 0,
+    removeLowestCost: APP_CONFIG.upgrade.deckRemoveLowestBaseCost,
+    removedLowestCards: 0
+  };
+}
 
-  spinning: false,
-  autoLoop: null,
-  plinkoAutoLoop: null
-};
+function createBaseState() {
+  return {
+    version: APP_CONFIG.appVersion,
+    game: {
+      chips: APP_CONFIG.blackjack.initialChips,
+      autoUnlocked: false,
+      autoRunning: false,
+      interval: APP_CONFIG.timing.baseAutoDelayMs,
+      autoCost: APP_CONFIG.upgrade.autoCost,
+      speedCost: APP_CONFIG.upgrade.speedCost,
+      speedLevel: 0,
+      maxSpeedLevel: APP_CONFIG.upgrade.maxSpeedLevel,
+      deckCost: APP_CONFIG.upgrade.deckStartCost,
+      combo: 0,
+      multiplier: 1,
+      blackjackUnlocked: false,
+      blackjackCost: APP_CONFIG.upgrade.blackjackCost,
+      plinkoUnlocked: false,
+      plinkoCost: APP_CONFIG.upgrade.plinkoCost,
+      plinkoAutoUnlocked: false,
+      plinkoAutoRunning: false,
+      plinkoAutoCost: APP_CONFIG.upgrade.plinkoAutoCost,
+      decks: [createDeckTemplate(1)],
+      spinning: false,
+      autoLoop: null,
+      plinkoAutoLoop: null
+    },
+    blackjack: {
+      hands: [],
+      dealer: [],
+      active: false,
+      wager: 0,
+      revealing: false,
+      currentHand: 0,
+      lastBet: APP_CONFIG.blackjack.defaultBet
+    },
+    plinko: {
+      activeDrops: 0,
+      lastBet: APP_CONFIG.plinko.initialBet,
+      risk: 2,
+      layers: APP_CONFIG.plinko.defaultLayers,
+      multipliers: []
+    },
+    telemetry: {
+      ...APP_CONFIG.telemetry.defaults
+    },
+    runtime: {
+      lastSavedMs: Date.now(),
+      offlineSeed: 0,
+      lastAutosaveSource: "boot"
+    }
+  };
+}
+
+function sanitizeDeck(deck, index) {
+  const template = createDeckTemplate(index + 1);
+  if (!deck || typeof deck !== "object") return template;
+  const hotspinLegacy = deck.hotspins === true ? 1 : Number(deck.hotspins);
+  const hotspinCount = Number.isFinite(hotspinLegacy) ? Math.max(0, Math.floor(hotspinLegacy)) : 0;
+  const out = {
+    type: typeof deck.type === "string" && deck.type.trim() ? deck.type : template.type,
+    emoji: typeof deck.emoji === "string" ? deck.emoji : template.emoji,
+    hands: Math.max(1, Number(deck.hands) || 1),
+    maxHands: APP_CONFIG.decks.maxHands,
+    handCost: Math.max(1, Number(deck.handCost) || template.handCost),
+    hotspins: Math.max(0, hotspinCount || 0),
+    hotspinCost: Math.max(1, Number(deck.hotspinCost) || template.hotspinCost),
+    aceAddCost: Math.max(1, Number(deck.aceAddCost) || template.aceAddCost),
+    addedAces: Math.max(0, Math.floor(Number(deck.addedAces) || 0)),
+    removeLowestCost: Math.max(1, Number(deck.removeLowestCost) || template.removeLowestCost),
+    removedLowestCards: Math.max(0, Math.floor(Number(deck.removedLowestCards) || 0))
+  };
+  out.hands = Math.min(out.hands, out.maxHands);
+  return out;
+}
+
+function sanitizeState(raw) {
+  const base = createBaseState();
+  if (!raw || typeof raw !== "object") return base;
+
+  const sanitized = {
+    ...base,
+    ...raw
+  };
+
+  sanitized.game = { ...base.game, ...(raw.game || {}) };
+  sanitized.game.decks = Array.isArray(raw?.game?.decks) ? raw.game.decks.map((deck, index) => sanitizeDeck(deck, index)) : base.game.decks;
+  sanitized.blackjack = { ...base.blackjack, ...(raw.blackjack || {}) };
+  sanitized.plinko = { ...base.plinko, ...(raw.plinko || {}) };
+  sanitized.telemetry = { ...base.telemetry, ...(raw.telemetry || {}) };
+  sanitized.runtime = { ...base.runtime, ...(raw.runtime || {}) };
+  sanitized.version = APP_CONFIG.appVersion;
+  sanitized.game.maxSpeedLevel = APP_CONFIG.upgrade.maxSpeedLevel;
+  return sanitized;
+}
+
+function loadState() {
+  if (APP_CONFIG.forceFreshOnLoad) {
+    try {
+      localStorage.removeItem(APP_CONFIG.storageKey);
+    } catch (error) {
+      console.warn("Could not clear persisted state", error);
+    }
+    return createBaseState();
+  }
+
+  try {
+    const rawPayload = localStorage.getItem(APP_CONFIG.storageKey);
+    if (!rawPayload) return createBaseState();
+    const parsed = JSON.parse(rawPayload);
+    return sanitizeState(parsed);
+  } catch (error) {
+    console.warn("State load failed, using fresh state", error);
+    return createBaseState();
+  }
+}
+
+const gameState = loadState();
+const game = gameState.game;
+const bj = gameState.blackjack;
+const plinko = gameState.plinko;
+
+const bus = createEventBus();
+const timerManager = createTimerManager();
+let saveTimer = null;
+const miniGameModules = new Map();
+
+function registerMiniGame(module) {
+  if (!module || !module.id) return;
+  miniGameModules.set(module.id, module);
+}
+
+function emitMiniGameEvent(name, payload = {}) {
+  for (const module of miniGameModules.values()) {
+    module?.onEvent?.(name, payload);
+  }
+}
+
+function recordTelemetry(key, amount = 1) {
+  if (typeof gameState.telemetry[key] !== "number") {
+    gameState.telemetry[key] = 0;
+  }
+  gameState.telemetry[key] += amount;
+  gameState.telemetry.lastUpdatedMs = Date.now();
+}
+
+function markDirty(reason = "state") {
+  gameState.telemetry.maxChipEver = Math.max(gameState.telemetry.maxChipEver, game.chips);
+  gameState.runtime.lastAutosaveSource = reason;
+  gameState.runtime.lastSavedMs = Date.now();
+  if (saveTimer) return;
+  saveTimer = timerManager.setTimeout(() => {
+    saveTimer = null;
+    try {
+      localStorage.setItem(APP_CONFIG.storageKey, JSON.stringify(gameState));
+    } catch (error) {
+      console.error("State save failed", error);
+    }
+  }, APP_CONFIG.saveDebounceMs);
+}
+
+function notifyStateChanged(reason = "state") {
+  bus.emit("state:changed", { reason });
+  markDirty(reason);
+}
+
+function saveState(reason = "explicit") {
+  markDirty(reason);
+}
+
+function saveStateNow(reason = "explicit") {
+  gameState.runtime.lastAutosaveSource = reason;
+  gameState.runtime.lastSavedMs = Date.now();
+  gameState.telemetry.lastUpdatedMs = gameState.runtime.lastSavedMs;
+  try {
+    localStorage.setItem(APP_CONFIG.storageKey, JSON.stringify(gameState));
+  } catch (error) {
+    console.error("State save failed", error);
+  }
+}
 
 const scoreEl = document.querySelector("#score");
 const chipLayer = document.querySelector("#chipLayer");
@@ -57,6 +508,7 @@ const bjChipBtns = document.querySelectorAll(".bet-chip");
 const blackjackPanel = document.querySelector("#blackjackPanel");
 const bjPlayer = document.querySelector("#bjPlayer");
 const bjDealer = document.querySelector("#bjDealer");
+const bjControls = document.querySelector(".bjControls");
 
 const buyPlinkoBtn = document.querySelector("#buyPlinko");
 const plinkoPanel = document.querySelector("#plinkoPanel");
@@ -77,6 +529,14 @@ const plinkoSlots = document.querySelector("#plinkoSlots");
 const plinkoResult = document.querySelector("#plinkoResult");
 const panelToggleBtns = document.querySelectorAll(".panel-toggle");
 
+function installAudioPrimers() {
+  ["pointerdown", "keydown", "touchstart"].forEach(eventName => {
+    document.addEventListener(eventName, () => {
+      ensureAudioReady();
+    }, { once: true });
+  });
+}
+
 function toast(msg) {
   const t = document.createElement("div");
   t.className = "toast";
@@ -86,7 +546,7 @@ function toast(msg) {
   setTimeout(() => {
     t.classList.remove("show");
     setTimeout(() => t.remove(), 200);
-  }, 1200);
+  }, APP_CONFIG.timing.toastMs);
 }
 
 function updateScore() {
@@ -102,15 +562,15 @@ function updateSideGames() {
 }
 
 function getAutoDealDelay() {
-  return Math.round(Math.max(280, 1200 * Math.pow(0.93, game.speedLevel)));
+  return Math.round(Math.max(APP_CONFIG.timing.minAutoDelayMs, APP_CONFIG.timing.baseAutoDelayMs * Math.pow(APP_CONFIG.timing.autoDelayScale, game.speedLevel)));
 }
 
 function getDealAnimationScale() {
-  return Math.max(0.35, Math.pow(0.95, game.speedLevel));
+  return Math.max(APP_CONFIG.animation.dealScaleMin, Math.pow(APP_CONFIG.animation.dealScaleDrop, game.speedLevel));
 }
 
 function getChipAnimationMs() {
-  return Math.round(Math.max(360, 900 * getDealAnimationScale()));
+  return Math.round(Math.max(APP_CONFIG.animation.chipFloorMs, APP_CONFIG.animation.chipBaseDurationMs * getDealAnimationScale()));
 }
 
 function formatSeconds(ms) {
@@ -125,7 +585,8 @@ function togglePanelMinimized(panelId) {
   const button = panel.querySelector(".panel-toggle");
   if (button) {
     button.textContent = minimized ? "+" : "_";
-    button.setAttribute("aria-label", `${minimized ? "Restore" : "Minimize"} ${panel.querySelector("h2")?.textContent || "panel"}`);
+    const heading = panel.querySelector("h2")?.textContent || "panel";
+    button.setAttribute("aria-label", `${minimized ? "Restore" : "Minimize"} ${heading}`);
   }
 }
 
@@ -185,35 +646,61 @@ function updateButtons() {
   document.querySelectorAll(".hotspin-upgrade").forEach(button => {
     const deck = game.decks[Number(button.dataset.deckIndex)];
     if (!deck) return;
-    button.disabled = deck.hotspins || game.chips < deck.hotspinCost;
-    button.textContent = deck.hotspins ? "Hotspins On" : `Hotspins (${deck.hotspinCost})`;
+    button.disabled = game.chips < deck.hotspinCost;
+    button.textContent = deck.hotspins > 0 ? `Hotspins x${deck.hotspins} (${deck.hotspinCost})` : `Unlock Hotspins (${deck.hotspinCost})`;
+  });
+
+  document.querySelectorAll(".ace-upgrade").forEach(button => {
+    const deck = game.decks[Number(button.dataset.deckIndex)];
+    if (!deck) return;
+    button.disabled = game.chips < deck.aceAddCost;
+    button.textContent = `+ Ace (${deck.aceAddCost})`;
+  });
+
+  document.querySelectorAll(".trim-lowest-upgrade").forEach(button => {
+    const deck = game.decks[Number(button.dataset.deckIndex)];
+    if (!deck) return;
+    const canTrim = canRemoveLowestCard(deck);
+    button.disabled = game.chips < deck.removeLowestCost || !canTrim;
+    button.textContent = canTrim ? `Remove Low Card (${deck.removeLowestCost})` : "No Low Card Left";
   });
 }
 
 function spend(cost) {
   if (game.chips < cost) return false;
   game.chips -= cost;
-  updateScore();
+  recordTelemetry("chipsSpent", cost);
+  notifyStateChanged("spend");
   return true;
 }
 
 function spawnChips(amount, mode = "normal", source = null) {
+  if (!Number.isFinite(amount) || amount <= 0) return;
   const targetRect = scoreEl.getBoundingClientRect();
-  const count = mode === "burst" ? 90 : mode === "big" ? 60 : 35;
+  const count = mode === "burst" ? APP_CONFIG.animation.chipCount.burst : mode === "big" ? APP_CONFIG.animation.chipCount.big : APP_CONFIG.animation.chipCount.normal;
   const sourceRect = source?.getBoundingClientRect?.();
+  const isDeckSource = source?.dataset?.isDeckSource || source?.classList?.contains("deck") || source?.id === "pokerPanel";
+  const chipCount = isDeckSource
+    ? Math.min(count, mode === "burst" ? APP_CONFIG.animation.chipCount.deckBurst : mode === "big" ? APP_CONFIG.animation.chipCount.deckBig : APP_CONFIG.animation.chipCount.deckNormal)
+    : count;
   const targetX = targetRect.left + targetRect.width / 2;
   const targetY = targetRect.top + targetRect.height / 2;
   const chipDuration = getChipAnimationMs();
+  const shouldSound = amount > 0 && SOUND.context;
 
-  for (let i = 0; i < Math.min(amount, count); i++) {
+  for (let i = 0; i < Math.min(amount, chipCount); i++) {
     const chip = document.createElement("div");
     chip.className = "chip";
     let sx;
     let sy;
 
     if (sourceRect && (sourceRect.width > 0 || sourceRect.height > 0 || sourceRect.left !== 0 || sourceRect.top !== 0)) {
-      sx = sourceRect.left + sourceRect.width / 2 + (Math.random() - 0.5) * Math.max(18, sourceRect.width * 0.65);
-      sy = sourceRect.top + sourceRect.height / 2 + (Math.random() - 0.5) * Math.max(18, sourceRect.height * 0.65);
+      const spreadX = Math.max(14, (sourceRect.width || 120) * (isDeckSource ? 0.85 : 0.65));
+      const spreadY = Math.max(14, (sourceRect.height || 80) * (isDeckSource ? 0.55 : 0.65));
+      sx = sourceRect.left + sourceRect.width / 2 + (Math.random() - 0.5) * spreadX;
+      sy = sourceRect.top + sourceRect.height / 2 + (Math.random() - 0.5) * spreadY;
+      sx = Math.min(Math.max(sx, sourceRect.left), sourceRect.left + sourceRect.width);
+      sy = Math.min(Math.max(sy, sourceRect.top), sourceRect.top + sourceRect.height);
     } else if (source && Number.isFinite(source.x) && Number.isFinite(source.y)) {
       sx = source.x + (Math.random() - 0.5) * Math.max(18, (source.width || 42) * 0.65);
       sy = source.y + (Math.random() - 0.5) * Math.max(18, (source.height || 24) * 0.65);
@@ -239,6 +726,10 @@ function spawnChips(amount, mode = "normal", source = null) {
     setTimeout(() => chip.remove(), chipDuration);
   }
 
+  if (shouldSound) {
+    timerManager.setTimeout(() => playChipDrop(), 40);
+  }
+
   scoreEl.classList.add("pop");
   setTimeout(() => scoreEl.classList.remove("pop"), 160);
 }
@@ -260,19 +751,56 @@ function createStandardDeck() {
   const suits = ["hearts", "diamonds", "clubs", "spades"];
   const ranks = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
   const cards = [];
-
   suits.forEach(suit => {
     ranks.forEach(rank => cards.push({ rank, suit }));
   });
+  return cards;
+}
+
+const DECK_RANK_ORDER = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+const DECK_SUITS = ["hearts", "diamonds", "clubs", "spades"];
+
+function buildDeckForHand(deck) {
+  const cards = createStandardDeck();
+  const addedAces = Math.max(0, Math.floor(Number(deck?.addedAces) || 0));
+  for (let i = 0; i < addedAces; i++) {
+    cards.push({
+      rank: "A",
+      suit: DECK_SUITS[i % DECK_SUITS.length]
+    });
+  }
+
+  const removedCount = Math.max(0, Math.floor(Number(deck?.removedLowestCards) || 0));
+  for (let removed = 0; removed < removedCount; removed++) {
+    let removedIndex = -1;
+    for (const rank of DECK_RANK_ORDER) {
+      const candidateIndex = cards.findIndex(card => card.rank === rank);
+      if (candidateIndex >= 0) {
+        removedIndex = candidateIndex;
+        break;
+      }
+    }
+    if (removedIndex < 0) break;
+    cards.splice(removedIndex, 1);
+  }
 
   return cards;
+}
+
+function canRemoveLowestCard(deck) {
+  const next = {
+    ...deck,
+    removedLowestCards: Math.floor(Number(deck.removedLowestCards || 0)) + 1
+  };
+  const cards = buildDeckForHand(next);
+  const required = Math.max(APP_CONFIG.decks.handSize, (Number(deck.hands) || 1) * APP_CONFIG.decks.handSize);
+  return cards.length >= required;
 }
 
 function drawFromDeck(deck) {
   if (deck.length === 0) {
     deck.push(...createStandardDeck());
   }
-
   const index = Math.floor(Math.random() * deck.length);
   return deck.splice(index, 1)[0];
 }
@@ -287,7 +815,6 @@ function createCardEl(card, hidden = false) {
   const el = document.createElement("div");
   el.className = hidden ? "card back" : `card ${card.suit}`;
   el.dataset.suit = hidden ? "" : card.suit[0].toUpperCase();
-
   const rank = document.createElement("div");
   rank.className = "rank";
   rank.textContent = hidden ? "?" : card.rank;
@@ -302,11 +829,12 @@ function setCardFace(el, card) {
 }
 
 function animatePokerCard(el, finalCard, delayMs, speedScale = 1) {
-  const spinMs = Math.max(22, 55 * speedScale);
-  const settleMs = Math.max(80, 180 * speedScale);
+  const spinMs = Math.max(22, APP_CONFIG.animation.cardSpinMs * speedScale);
+  const settleMs = Math.max(80, APP_CONFIG.animation.cardSettleMs * speedScale);
   el.style.setProperty("--slot-roll-duration", `${Math.max(70, 120 * speedScale)}ms`);
   el.style.setProperty("--slot-settle-duration", `${settleMs}ms`);
   el.classList.add("slot-rolling");
+  timerManager.setTimeout(() => playCardOut(), Math.max(0, delayMs - 6));
 
   const spin = setInterval(() => {
     setCardFace(el, randomCard());
@@ -322,10 +850,10 @@ function animatePokerCard(el, finalCard, delayMs, speedScale = 1) {
 }
 
 function animatePokerCardReroll(el, finalCard, startMs, durationMs, speedScale = 1) {
-  const spinMs = Math.max(22, 55 * speedScale);
-  const settleMs = Math.max(80, 180 * speedScale);
-
+  const spinMs = Math.max(22, APP_CONFIG.animation.cardSpinMs * speedScale);
+  const settleMs = Math.max(80, APP_CONFIG.animation.cardSettleMs * speedScale);
   setTimeout(() => {
+    playCardOut();
     el.classList.add("hotspin-rerolling", "slot-rolling");
     el.style.setProperty("--slot-roll-duration", `${Math.max(70, 120 * speedScale)}ms`);
     el.style.setProperty("--slot-settle-duration", `${settleMs}ms`);
@@ -345,22 +873,7 @@ function animatePokerCardReroll(el, finalCard, startMs, durationMs, speedScale =
 }
 
 function pokerHandDetails(cards) {
-  const rankValues = {
-    "2": 2,
-    "3": 3,
-    "4": 4,
-    "5": 5,
-    "6": 6,
-    "7": 7,
-    "8": 8,
-    "9": 9,
-    "10": 10,
-    J: 11,
-    Q: 12,
-    K: 13,
-    A: 14
-  };
-  const values = cards.map(card => rankValues[card.rank]);
+  const values = cards.map(card => APP_CONFIG.pokerHandRanks[card.rank]);
   const sortedValues = [...values].sort((a, b) => a - b);
   const rankCounts = cards.reduce((acc, card) => {
     acc[card.rank] = (acc[card.rank] || 0) + 1;
@@ -377,6 +890,8 @@ function pokerHandDetails(cards) {
     .map((card, index) => ranks.includes(card.rank) ? index : -1)
     .filter(index => index !== -1);
 
+  if (counts[0] === 5 && flush) return { name: "Flush Five", indices: allCards, premium: true };
+  if (counts[0] === 5) return { name: "Five of a Kind", indices: allCards, premium: true };
   if (straight && flush && uniqueValues[0] === 10) return { name: "Royal Flush", indices: allCards, premium: true };
   if (straight && flush) return { name: "Straight Flush", indices: allCards, premium: true };
   if (counts[0] === 4) return { name: "Four of a Kind", indices: indicesForRanks(ranksWithCount(4)), premium: true };
@@ -394,24 +909,30 @@ function pokerHandName(cards) {
 }
 
 function pokerHandPayout(handName) {
-  const payouts = {
-    "High Card": 0,
-    Pair: 2,
-    "Two Pair": 5,
-    "Three of a Kind": 10,
-    Straight: 20,
-    Flush: 25,
-    "Full House": 40,
-    "Four of a Kind": 80,
-    "Straight Flush": 150,
-    "Royal Flush": 300
-  };
+  return APP_CONFIG.payouts.poker[handName] || 0;
+}
 
-  return payouts[handName] || 0;
+function formatPokerHandName(handName) {
+  const shortNames = {
+    "High Card": "High",
+    "Pair": "Pair",
+    "Two Pair": "2 Pair",
+    "Three of a Kind": "Trips",
+    "Straight": "Str",
+    "Flush": "Flush",
+    "Full House": "Boat",
+    "Four of a Kind": "Quads",
+    "Straight Flush": "SF",
+    "Royal Flush": "Royal",
+    "Five of a Kind": "5Kind",
+    "Flush Five": "Flush5"
+  };
+  return shortNames[handName] || handName;
 }
 
 function pokerResultText(handName, payout) {
-  return payout ? `${handName} +${payout}` : `${handName} +0`;
+  const label = formatPokerHandName(handName);
+  return payout ? `${label} +${payout}` : `${label} +0`;
 }
 
 function clearPokerHighlights(row, cardEls) {
@@ -423,11 +944,9 @@ function clearPokerHighlights(row, cardEls) {
 
 function highlightPokerWin(row, cardEls, details, options = {}) {
   if (details.indices.length === 0) return;
-
   details.indices.forEach(index => {
     cardEls[index]?.classList.add("win-card");
   });
-
   row.classList.add("winning-hand");
   if (details.premium && !options.preview) {
     row.classList.add("premium-win");
@@ -435,42 +954,141 @@ function highlightPokerWin(row, cardEls, details, options = {}) {
   }
 }
 
-function applyHotspins(cards, shoe) {
-  const details = pokerHandDetails(cards);
-  const scoring = new Set(details.indices);
-  const rerollIndices = details.indices.length === 0
-    ? cards.map((_, index) => index)
-    : cards.map((_, index) => index).filter(index => !scoring.has(index));
+function applyHotspins(cards, shoe, spinCount = 0) {
+  const spins = [];
+  const totalSpins = Math.max(0, Math.floor(Number(spinCount) || 0));
+  for (let spin = 0; spin < totalSpins; spin++) {
+    const details = pokerHandDetails(cards);
+    const scoring = new Set(details.indices);
+    const rerollIndices = details.indices.length === 0
+      ? cards.map((_, index) => index)
+      : cards.map((_, index) => index).filter(index => !scoring.has(index));
+    if (rerollIndices.length === 0) break;
+    spins.push([...rerollIndices]);
+    rerollIndices.forEach(index => {
+      cards[index] = drawFromDeck(shoe);
+    });
+  }
+  return spins;
+}
 
-  rerollIndices.forEach(index => {
-    cards[index] = drawFromDeck(shoe);
-  });
+function applyHotspinsSim(cards, shoe, rng, spinCount = 0) {
+  const totalSpins = Math.max(0, Math.floor(Number(spinCount) || 0));
+  for (let spin = 0; spin < totalSpins; spin++) {
+    const details = pokerHandDetails(cards);
+    const scoring = new Set(details.indices);
+    const rerollIndices = details.indices.length === 0
+      ? cards.map((_, index) => index)
+      : cards.map((_, index) => index).filter(index => !scoring.has(index));
+    if (rerollIndices.length === 0) break;
+    rerollIndices.forEach(index => {
+      cards[index] = drawFromDeckRng(shoe, rng);
+    });
+  }
+  return cards;
+}
 
-  return rerollIndices;
+function simulateOfflinePokerGain(cycles) {
+  const sampleCycles = Math.min(cycles, APP_CONFIG.timing.offlineSimulationSampleCycles);
+  if (!sampleCycles) return 0;
+  const rng = createRng(gameState.runtime.offlineSeed || gameState.runtime.lastSavedMs || Date.now());
+  let sampleGain = 0;
+
+  for (let i = 0; i < sampleCycles; i++) {
+    game.decks.forEach(deck => {
+      const shoe = buildDeckForHand(deck);
+      for (let handIndex = 0; handIndex < deck.hands; handIndex++) {
+        const cards = Array.from({ length: APP_CONFIG.decks.handSize }, () => drawFromDeckRng(shoe, rng));
+        const finalCards = deck.hotspins ? applyHotspinsSim(cards, shoe, rng, deck.hotspins) : cards;
+        const handName = pokerHandName(finalCards);
+        const payout = Math.ceil(pokerHandPayout(handName) * game.multiplier);
+        sampleGain += payout;
+      }
+    });
+  }
+
+  return Math.floor((sampleGain / sampleCycles) * cycles);
+}
+
+function applyOfflineProgress() {
+  const now = Date.now();
+  const last = gameState.runtime.lastSavedMs || now;
+  const elapsed = now - last;
+  if (!game.autoUnlocked || !game.autoRunning || elapsed <= 0) {
+    gameState.runtime.lastSavedMs = now;
+    return;
+  }
+
+  const cyclesPossible = Math.floor(elapsed / getAutoDealDelay());
+  const cycles = Math.min(cyclesPossible, APP_CONFIG.timing.offlineCatchupMaxCycles);
+  if (cycles <= 0) {
+    gameState.runtime.lastSavedMs = now;
+    return;
+  }
+
+  const estimated = simulateOfflinePokerGain(cycles);
+  game.chips += estimated;
+  recordTelemetry("totalOfflineCycles", cycles);
+  recordTelemetry("totalOfflineEarnings", estimated);
+  recordTelemetry("chipsEarned", estimated);
+  gameState.runtime.lastSavedMs = now;
+  gameState.runtime.offlineSeed = (gameState.runtime.offlineSeed || 1) + cycles;
+  notifyStateChanged("offline");
+  if (estimated > 0) toast(`Offline catch-up: +${estimated} chips`);
 }
 
 function upgradeDeckHands(index) {
   const deck = game.decks[index];
   if (!deck || deck.hands >= deck.maxHands || !spend(deck.handCost)) return;
-
+  ensureAudioReady();
+  playUpgradeClick();
   deck.hands++;
-  deck.handCost = Math.ceil(deck.handCost * 1.55);
+  deck.handCost = Math.ceil(deck.handCost * APP_CONFIG.upgrade.deckHandCostGrowth);
   toast(`${deck.type} upgraded to ${deck.hands} hands`);
   renderDecks();
+  notifyStateChanged("deck-upgrade");
 }
 
 function upgradeDeckHotspins(index) {
   const deck = game.decks[index];
-  if (!deck || deck.hotspins || !spend(deck.hotspinCost)) return;
-
-  deck.hotspins = true;
-  toast(`${deck.type} Hotspins unlocked`);
+  if (!deck || !spend(deck.hotspinCost)) return;
+  ensureAudioReady();
+  playUpgradeClick();
+  deck.hotspins++;
+  deck.hotspinCost = Math.ceil(deck.hotspinCost * APP_CONFIG.upgrade.hotspinCostGrowth);
+  toast(`${deck.type} hotspins increased to ${deck.hotspins}`);
   renderDecks();
+  notifyStateChanged("deck-hotspins");
+}
+
+function upgradeDeckAces(index) {
+  const deck = game.decks[index];
+  if (!deck || !spend(deck.aceAddCost)) return;
+  ensureAudioReady();
+  playUpgradeClick();
+  deck.addedAces++;
+  deck.aceAddCost = Math.ceil(deck.aceAddCost * APP_CONFIG.upgrade.deckAceCostGrowth);
+  toast(`${deck.type} gained +1 Ace (${deck.addedAces} total)`);
+  renderDecks();
+  notifyStateChanged("deck-ace");
+}
+
+function upgradeDeckTrimLowest(index) {
+  const deck = game.decks[index];
+  if (!deck || !canRemoveLowestCard(deck)) return;
+  if (!spend(deck.removeLowestCost)) return;
+  ensureAudioReady();
+  playUpgradeClick();
+  deck.removedLowestCards++;
+  deck.removeLowestCost = Math.ceil(deck.removeLowestCost * APP_CONFIG.upgrade.deckRemoveLowestCostGrowth);
+  toast(`${deck.type} removed one lowest card`);
+  renderDecks();
+  notifyStateChanged("deck-trim-lowest");
 }
 
 function renderDecks(animateWins = false) {
   handsContainer.innerHTML = "";
-  const winningHands = [];
+  const deckPayouts = [];
   const speedScale = animateWins ? getDealAnimationScale() : 1;
   let longestAnimationMs = 0;
 
@@ -482,21 +1100,23 @@ function renderDecks(animateWins = false) {
         <span>${deck.type} Deck - ${deck.hands}/${deck.maxHands} hands</span>
         <div class="deck-actions">
           <button class="btn deck-upgrade" data-deck-index="${index}">+ Hand (${deck.handCost})</button>
-          <button class="btn hotspin-upgrade" data-deck-index="${index}">Hotspins (${deck.hotspinCost})</button>
+          <button class="btn hotspin-upgrade" data-deck-index="${index}">${deck.hotspins > 0 ? `Hotspins x${deck.hotspins}` : "Unlock Hotspins"} (${deck.hotspinCost})</button>
+          <button class="btn ace-upgrade" data-deck-index="${index}">Add Ace (${deck.aceAddCost})</button>
+          <button class="btn trim-lowest-upgrade" data-deck-index="${index}">Remove Low Card (${deck.removeLowestCost})</button>
         </div>
       </div>
     `;
-    deckEl.querySelector(".deck-upgrade").onclick = () => upgradeDeckHands(index);
-    deckEl.querySelector(".hotspin-upgrade").onclick = () => upgradeDeckHotspins(index);
-    const shoe = createStandardDeck();
+
+    const shoe = buildDeckForHand(deck);
 
     for (let i = 0; i < deck.hands; i++) {
       const row = document.createElement("div");
       row.className = "hand";
-      const cards = Array.from({ length: 5 }, () => drawFromDeck(shoe));
+      const cards = Array.from({ length: APP_CONFIG.decks.handSize }, () => drawFromDeck(shoe));
       const firstRollCards = cards.map(card => ({ ...card }));
       const firstRollDetails = pokerHandDetails(firstRollCards);
-      const hotspinIndices = deck.hotspins ? applyHotspins(cards, shoe) : [];
+      const hotspinPlan = deck.hotspins > 0 ? applyHotspins(cards, shoe, deck.hotspins) : [];
+      const hotspinIndices = [...new Set(hotspinPlan.flatMap(indices => indices))];
       const cardEls = cards.map((card, cardIndex) => {
         const face = animateWins ? randomCard() : card;
         return createCardEl(hotspinIndices.includes(cardIndex) && !animateWins ? card : face);
@@ -506,7 +1126,12 @@ function renderDecks(animateWins = false) {
       const handDetails = pokerHandDetails(cards);
       const handName = handDetails.name;
       const payout = Math.ceil(pokerHandPayout(handName) * game.multiplier);
-      if (payout) game.chips += payout;
+      if (payout) {
+        recordTelemetry("chipsEarned", payout);
+        recordTelemetry("totalPokerPayout", payout);
+      }
+
+      recordTelemetry("totalPokerHands", 1);
 
       const result = document.createElement("span");
       result.className = "result";
@@ -518,31 +1143,52 @@ function renderDecks(animateWins = false) {
       if (animateWins) {
         const handDelay = (420 + (i * 55)) * speedScale;
         const firstRollEnd = handDelay + 4 * 95 * speedScale;
-        const hotspinStart = firstRollEnd + 180 * speedScale;
         const hotspinDuration = 360 * speedScale;
-        const hotspinEnd = hotspinStart + hotspinDuration + Math.max(0, hotspinIndices.length - 1) * 55 * speedScale + 120 * speedScale;
-        const revealDelay = hotspinIndices.length > 0 ? hotspinEnd : handDelay + 490 * speedScale;
+        let spinStart = firstRollEnd + 180 * speedScale;
+        const spinDurations = hotspinPlan.length > 0
+          ? hotspinPlan.map(spin => {
+            return hotspinDuration + Math.max(0, spin.length - 1) * 55 * speedScale + 120 * speedScale;
+          })
+          : [];
+        let revealDelay = spinStart;
+        if (spinDurations.length > 0) {
+          spinDurations.forEach(duration => {
+            spinStart += duration;
+          });
+          revealDelay = spinStart;
+        } else {
+          revealDelay = handDelay + 490 * speedScale;
+        }
         handChipDelay = revealDelay + 220 * speedScale;
         longestAnimationMs = Math.max(longestAnimationMs, handChipDelay);
+
         cardEls.forEach((cardEl, cardIndex) => {
           animatePokerCard(cardEl, firstRollCards[cardIndex], handDelay + cardIndex * 95 * speedScale, speedScale);
         });
-        if (hotspinIndices.length > 0) {
+
+        if (hotspinPlan.length > 0) {
           setTimeout(() => {
             highlightPokerWin(row, cardEls, firstRollDetails, { preview: true });
           }, firstRollEnd + 40 * speedScale);
         }
-        if (hotspinIndices.length > 0) {
-          hotspinIndices.forEach((cardIndex, rerollIndex) => {
-            animatePokerCardReroll(
-              cardEls[cardIndex],
-              cards[cardIndex],
-              hotspinStart + rerollIndex * 55 * speedScale,
-              hotspinDuration,
-              speedScale
-            );
+
+        if (spinDurations.length > 0) {
+          let spinIterationStart = firstRollEnd + 180 * speedScale;
+          hotspinPlan.forEach((spin, spinIndex) => {
+            const duration = spinDurations[spinIndex];
+            spin.forEach((cardIndex, rerollIndex) => {
+              animatePokerCardReroll(
+                cardEls[cardIndex],
+                cards[cardIndex],
+                spinIterationStart + rerollIndex * 55 * speedScale,
+                hotspinDuration,
+                speedScale
+              );
+            });
+            spinIterationStart += duration;
           });
         }
+
         setTimeout(() => {
           clearPokerHighlights(row, cardEls);
           hotspinIndices.forEach(cardIndex => cardEls[cardIndex]?.classList.add("hotspin-card"));
@@ -557,37 +1203,51 @@ function renderDecks(animateWins = false) {
       }
 
       if (animateWins && payout) {
-        winningHands.push({ row, payout, chipDelay: handChipDelay });
+        deckPayouts[index] ||= { deckEl, payout: 0, chipDelay: 0 };
+        deckPayouts[index].payout += payout;
+        deckPayouts[index].chipDelay = Math.max(deckPayouts[index].chipDelay, handChipDelay);
       }
     }
 
+    deckEl.dataset.isDeckSource = "true";
     handsContainer.appendChild(deckEl);
   });
 
+  const pendingPayout = deckPayouts.reduce((sum, deck) => sum + (deck?.payout || 0), 0);
   updateScore();
+  markDirty("render-decks");
+  const chipAnimationMs = animateWins ? getChipAnimationMs() : 0;
+  const lastChipDelay = pendingPayout
+    ? Math.max(...deckPayouts.filter(Boolean).map(({ chipDelay }, index) => chipDelay + index * 90 * speedScale))
+    : 0;
+  const payoutDelay = lastChipDelay + chipAnimationMs;
 
-  if (winningHands.length > 0) {
-    requestAnimationFrame(() => {
-      winningHands.forEach(({ row, payout, chipDelay }, index) => {
-        const rect = row.getBoundingClientRect();
-        const source = {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-          width: rect.width,
-          height: rect.height
-        };
-        const mode = payout >= 25 ? "big" : "normal";
-        setTimeout(() => spawnChips(payout, mode, source), chipDelay + index * 90 * speedScale);
-      });
-    });
+  if (pendingPayout && animateWins) {
+    timerManager.setTimeout(() => {
+      game.chips += pendingPayout;
+      updateScore();
+      markDirty("poker-payout");
+    }, payoutDelay);
   }
 
-  return animateWins ? Math.max(1120 * speedScale, longestAnimationMs) + winningHands.length * 90 * speedScale : 0;
-}
+  if (deckPayouts.length > 0) {
+    requestAnimationFrame(() => {
+      deckPayouts.forEach(({ deckEl, payout, chipDelay }, index) => {
+        if (!deckEl) return;
+        const mode = payout >= 25 ? "big" : "normal";
+        setTimeout(() => spawnChips(payout, mode, deckEl), chipDelay + index * 90 * speedScale);
+        });
+      });
+    }
+
+    const winningDecksCount = deckPayouts.filter(Boolean).length;
+    return animateWins ? Math.max(1120 * speedScale, longestAnimationMs) + winningDecksCount * 90 * speedScale + chipAnimationMs : 0;
+  }
 
 async function deal() {
   if (game.spinning) return;
   game.spinning = true;
+  recordTelemetry("totalPokerCycles", 1);
   const animationMs = renderDecks(true);
   await delay(animationMs);
   game.spinning = false;
@@ -595,34 +1255,19 @@ async function deal() {
 
 async function runAutoDealLoop() {
   if (!game.autoRunning) return;
-
   await deal();
   if (!game.autoRunning) return;
-
-  game.autoLoop = setTimeout(runAutoDealLoop, getAutoDealDelay());
+  game.autoLoop = timerManager.setTimeout(runAutoDealLoop, getAutoDealDelay());
 }
 
 function toggleAutoDeal() {
   if (!game.autoUnlocked) return;
   game.autoRunning = !game.autoRunning;
-  clearTimeout(game.autoLoop);
-
-  if (game.autoRunning) {
-    runAutoDealLoop();
-  }
-
+  timerManager.clearTimeout(game.autoLoop);
+  if (game.autoRunning) runAutoDealLoop();
   updateButtons();
+  notifyStateChanged("auto-toggle");
 }
-
-let bj = {
-  hands: [],
-  dealer: [],
-  active: false,
-  wager: 0,
-  revealing: false,
-  currentHand: 0,
-  lastBet: 25
-};
 
 function getBjBet() {
   return Math.max(1, Math.floor(Number(betInput.value) || bj.lastBet || 25));
@@ -652,17 +1297,14 @@ function drawCard() {
 function bjNumericScore(hand) {
   let total = 0;
   let aces = 0;
-
   for (const c of hand) {
     total += c.value;
     if (c.value === 11) aces++;
   }
-
   while (total > 21 && aces > 0) {
     total -= 10;
     aces--;
   }
-
   return total;
 }
 
@@ -678,9 +1320,7 @@ function renderBJ(showDealer = false) {
     const dealerValue = document.createElement("div");
     dealerValue.className = "bj-hand-value";
     const visibleDealerCards = showDealer || !bj.active ? bj.dealer : [bj.dealer[0]];
-    dealerValue.textContent = showDealer || !bj.active
-      ? `Dealer: ${bjScore(bj.dealer)}`
-      : `Dealer: ${bjScore(visibleDealerCards)}`;
+    dealerValue.textContent = showDealer || !bj.active ? `Dealer: ${bjScore(bj.dealer)}` : `Dealer: ${bjScore(visibleDealerCards)}`;
     bjDealer.appendChild(dealerValue);
   }
 
@@ -691,7 +1331,6 @@ function renderBJ(showDealer = false) {
   bj.hands.forEach((hand, index) => {
     const wrap = document.createElement("div");
     wrap.className = `bj-hand-wrapper ${index === bj.currentHand && bj.active ? "active-hand" : ""} ${hand.busted ? "busted" : ""}`;
-
     const value = document.createElement("div");
     value.className = "bj-hand-value";
     value.textContent = `Hand ${index + 1}: ${bjScore(hand.cards)}`;
@@ -708,21 +1347,48 @@ function renderBJ(showDealer = false) {
 function renderBJControls() {
   const panel = document.querySelector(".bjControls");
   if (!panel) return;
-
   if (!bj.active) {
     panel.innerHTML = `
-      <button class="btn" onclick="rebetBJ()">Rebet & Deal</button>
-      <button class="btn" onclick="rebetDoubleBJ()">Rebet x2 & Deal</button>
+      <button class="btn bj-control" data-bj-control="rebet">Rebet & Deal</button>
+      <button class="btn bj-control" data-bj-control="rebet-double">Rebet x2 & Deal</button>
     `;
     return;
   }
 
   panel.innerHTML = `
-    <button class="btn bj-control" onclick="bjHit()">Hit</button>
-    <button class="btn bj-control" onclick="bjStand()">Stand</button>
-    <button class="btn bj-control" onclick="bjDouble()">Double</button>
-    <button class="btn bj-control" onclick="bjSplit()">Split</button>
+    <button class="btn bj-control" data-bj-control="hit">Hit</button>
+    <button class="btn bj-control" data-bj-control="stand">Stand</button>
+    <button class="btn bj-control" data-bj-control="double">Double</button>
+    <button class="btn bj-control" data-bj-control="split">Split</button>
   `;
+}
+
+function handleBjControl(event) {
+  const action = event.target?.dataset?.bjControl;
+  if (!action) return;
+  switch (action) {
+    case "hit":
+      bjHit();
+      break;
+    case "stand":
+      bjStand();
+      break;
+    case "double":
+      bjDouble();
+      break;
+    case "split":
+      bjSplit();
+      break;
+    case "rebet":
+      rebetBJ();
+      break;
+    case "rebet-double":
+      rebetDoubleBJ();
+      break;
+    default:
+      return;
+  }
+  recordTelemetry("totalClicks", 1);
 }
 
 function rebetBJ() {
@@ -748,6 +1414,9 @@ function startBJ(wager) {
   renderBJ(false);
   renderBJControls();
   updateScore();
+  updateButtons();
+  recordTelemetry("totalBlackjackHands", 1);
+  recordTelemetry("totalBlackjackWager", wager);
 }
 
 async function advanceBJRound() {
@@ -771,7 +1440,6 @@ async function advanceBJRound() {
 
   const dealerScore = bjNumericScore(bj.dealer);
   let payout = 0;
-
   for (const h of bj.hands) {
     const playerScore = bjNumericScore(h.cards);
     if (h.busted || playerScore > 21) continue;
@@ -780,22 +1448,26 @@ async function advanceBJRound() {
   }
 
   game.chips += payout;
-  if (payout > 0) spawnChips(payout, "big", bjPlayer);
+  if (payout > 0) {
+    spawnChips(payout, "big", bjPlayer);
+    recordTelemetry("chipsEarned", payout);
+    recordTelemetry("totalBlackjackPayout", payout);
+  }
   toast(`Blackjack payout: ${payout}`);
+
   bj.active = false;
   bj.revealing = false;
   updateScore();
   renderBJControls();
   renderBJ(true);
+  notifyStateChanged("blackjack-resolve");
 }
 
 async function bjHit() {
   if (!bj.active) return;
   const hand = bj.hands[bj.currentHand];
   if (!hand || hand.done) return;
-
   hand.cards.push(drawCard());
-
   if (bjNumericScore(hand.cards) > 21) {
     hand.busted = true;
     hand.done = true;
@@ -806,7 +1478,6 @@ async function bjHit() {
     await advanceBJRound();
     return;
   }
-
   renderBJ(false);
   renderBJControls();
 }
@@ -821,72 +1492,29 @@ function bjDouble() {
   if (!bj.active || game.chips < bj.wager) return;
   game.chips -= bj.wager;
   bj.wager *= 2;
+  recordTelemetry("chipsSpent", bj.wager);
   bjHit();
   bjStand();
+  notifyStateChanged("bj-double");
 }
 
 function bjSplit() {
   const hand = bj.hands[bj.currentHand];
   if (!bj.active || !hand || hand.cards.length !== 2) return;
-
   const [c1, c2] = hand.cards;
   if (c1.value !== c2.value || game.chips < bj.wager) return;
   game.chips -= bj.wager;
-
+  recordTelemetry("chipsSpent", bj.wager);
   bj.hands.splice(
     bj.currentHand,
     1,
     { cards: [c1, drawCard()], done: false, busted: false },
     { cards: [c2, drawCard()], done: false, busted: false }
   );
-
   renderBJ(false);
   renderBJControls();
   updateScore();
-}
-
-let plinko = {
-  activeDrops: 0,
-  lastBet: 25,
-  risk: 2,
-  layers: 7,
-  multipliers: []
-};
-
-const plinkoRiskNames = {
-  1: "Low",
-  2: "Medium",
-  3: "High"
-};
-
-function formatMultiplier(value) {
-  return Number.isInteger(value) ? `${value}` : `${value.toFixed(value < 1 ? 2 : 1).replace(/0+$/, "").replace(/\.$/, "")}`;
-}
-
-function buildPlinkoMultipliers() {
-  const slots = plinko.layers + 2;
-  const center = (slots - 1) / 2;
-  const riskSettings = {
-    1: { edge: 2.25, center: 0.45, curve: 1.4 },
-    2: { edge: 5, center: 0.15, curve: 1.85 },
-    3: { edge: 11, center: 0, curve: 2.35 }
-  };
-  const settings = riskSettings[plinko.risk];
-
-  plinko.multipliers = Array.from({ length: slots }, (_, index) => {
-    const distance = Math.abs(index - center) / center;
-    const raw = settings.center + (settings.edge - settings.center) * Math.pow(distance, settings.curve);
-    return Math.max(0, Math.round(raw * 4) / 4);
-  });
-}
-
-function updatePlinkoSettings() {
-  plinko.risk = Number(plinkoRiskSlider.value);
-  plinko.layers = Number(plinkoLayersSlider.value);
-  plinkoRiskLabel.textContent = plinkoRiskNames[plinko.risk];
-  plinkoLayersLabel.textContent = plinko.layers;
-  buildPlinkoMultipliers();
-  renderPlinkoBoard();
+  notifyStateChanged("bj-split");
 }
 
 function getPlinkoBet() {
@@ -904,6 +1532,30 @@ function addPlinkoChip(value) {
   setPlinkoBet((Number(plinkoBetInput.value) || 0) + value);
 }
 
+function buildPlinkoMultipliers() {
+  const slots = plinko.layers + 2;
+  const center = (slots - 1) / 2;
+  const settings = APP_CONFIG.plinko.riskSettings[plinko.risk];
+  plinko.multipliers = Array.from({ length: slots }, (_, index) => {
+    const distance = Math.abs(index - center) / center;
+    const raw = settings.center + (settings.edge - settings.center) * Math.pow(distance, settings.curve);
+    return Math.max(0, Math.round(raw * 4) / 4);
+  });
+}
+
+function updatePlinkoSettings() {
+  plinko.risk = Number(plinkoRiskSlider.value);
+  plinko.layers = Number(plinkoLayersSlider.value);
+  plinkoRiskLabel.textContent = APP_CONFIG.plinko.riskLabel[plinko.risk];
+  plinkoLayersLabel.textContent = plinko.layers;
+  buildPlinkoMultipliers();
+  renderPlinkoBoard();
+}
+
+function formatMultiplier(value) {
+  return Number.isInteger(value) ? `${value}` : `${value.toFixed(value < 1 ? 2 : 1).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
 function renderPlinkoBoard(activeSlot = null) {
   plinkoPegs.innerHTML = "";
   plinkoSlots.innerHTML = "";
@@ -915,7 +1567,6 @@ function renderPlinkoBoard(activeSlot = null) {
     const rowTop = 12 + row * verticalStep;
     const leftEdge = 50 - (row / 2 + 1) * horizontalStep;
     const rightEdge = 50 + (row / 2 + 1) * horizontalStep;
-
     [leftEdge, rightEdge].forEach(edge => {
       const peg = document.createElement("div");
       peg.className = "plinko-peg plinko-peg-rail";
@@ -954,14 +1605,12 @@ function animatePlinkoChipTo(chip, x, y, duration, direction = 0) {
   const fromX = parseFloat(chip.style.left) || x;
   const fromY = parseFloat(chip.style.top) || y;
   const start = performance.now();
-
   return new Promise(resolve => {
     function frame(now) {
       const t = Math.min(1, (now - start) / duration);
       const gravity = t * t;
       const drift = 1 - Math.pow(1 - t, 3);
       const bounce = Math.sin(t * Math.PI) * 2.1;
-
       chip.style.left = `${fromX + (x - fromX) * drift + direction * bounce}%`;
       chip.style.top = `${fromY + (y - fromY) * gravity - bounce * 0.18}%`;
       chip.style.transform = `translate(-50%, -50%) rotate(${direction * t * 120}deg)`;
@@ -975,17 +1624,14 @@ function animatePlinkoChipTo(chip, x, y, duration, direction = 0) {
         resolve();
       }
     }
-
     requestAnimationFrame(frame);
   });
 }
 
 async function dropPlinkoChip() {
-  if (!game.plinkoUnlocked) return;
-
+  if (!game.plinkoUnlocked || plinko.activeDrops > 0) return;
   const wager = getPlinkoBet();
   if (!spend(wager)) return;
-
   plinko.lastBet = wager;
   setPlinkoBet(wager);
   plinko.activeDrops++;
@@ -1000,6 +1646,7 @@ async function dropPlinkoChip() {
   const startY = 12 + verticalStep * 0.52;
   let position = Math.floor((slots - 1) / 2);
   const steps = [];
+
   for (let row = startRow; row < plinko.layers; row++) {
     const direction = Math.random() < 0.5 ? -1 : 1;
     position += direction;
@@ -1034,126 +1681,247 @@ async function dropPlinkoChip() {
   const payout = Math.floor(wager * multiplier);
   game.chips += payout;
 
-  renderPlinkoBoard(slotIndex);
-  plinkoResult.textContent = `Landed ${formatMultiplier(multiplier)}x. Payout: ${payout}`;
   if (payout > 0) {
     spawnChips(payout, payout >= wager * 2 ? "big" : "normal", plinkoSlots.children[slotIndex]);
+    recordTelemetry("chipsEarned", payout);
+    recordTelemetry("totalPlinkoPayout", payout);
   }
-  toast(`Plinko payout: ${payout}`);
 
+  renderPlinkoBoard(slotIndex);
+  plinkoResult.textContent = `Landed ${formatMultiplier(multiplier)}x. Payout: ${payout}`;
+  toast(`Plinko payout: ${payout}`);
   await delay(350);
   chip.style.opacity = "0";
   setTimeout(() => chip.remove(), 150);
   plinko.activeDrops = Math.max(0, plinko.activeDrops - 1);
   updateScore();
+  notifyStateChanged("plinko-drop");
 }
 
 function togglePlinkoAuto() {
   if (!game.plinkoAutoUnlocked) return;
   game.plinkoAutoRunning = !game.plinkoAutoRunning;
-  clearInterval(game.plinkoAutoLoop);
-
+  timerManager.clearInterval(game.plinkoAutoLoop);
   if (game.plinkoAutoRunning) {
-    game.plinkoAutoLoop = setInterval(() => {
+    game.plinkoAutoLoop = timerManager.setInterval(() => {
       dropPlinkoChip();
     }, 1200);
   }
-
   updateButtons();
 }
 
-buyAutoBtn.onclick = () => {
-  if (!spend(game.autoCost)) return;
-  game.autoUnlocked = true;
-  toast("Auto deal unlocked");
-  updateButtons();
-};
-
-speedBtn.onclick = () => {
-  if (game.speedLevel >= game.maxSpeedLevel) return;
-  if (!spend(game.speedCost)) return;
-  game.speedLevel++;
-  game.interval = getAutoDealDelay();
-  game.speedCost = Math.ceil(game.speedCost * 1.22 + 15);
-  if (game.autoRunning && !game.spinning) {
-    clearTimeout(game.autoLoop);
-    runAutoDealLoop();
-  }
-  toast(`Speed improved: ${formatSeconds(game.interval)} auto delay`);
-  updateButtons();
-};
-
-buyDeckBtn.onclick = () => {
-  if (!spend(game.deckCost)) return;
-  const next = game.decks.length + 1;
-  game.decks.push({
-    type: `Deck ${next}`,
-    emoji: "S",
-    hands: 1,
-    maxHands: 8,
-    handCost: 75,
-    hotspins: false,
-    hotspinCost: 2500 * next
+function setupMiniModules() {
+  registerMiniGame({
+    id: "poker",
+    name: "Poker",
+    isUnlocked: () => true,
+    onEvent: (name, payload) => {
+      if (name === "state:tick") {
+        recordTelemetry("totalPokerCycles", payload?.cycles || 0);
+      }
+    },
+    render: () => renderDecks()
   });
-  game.deckCost = Math.ceil(game.deckCost * 1.75);
+  registerMiniGame({
+    id: "blackjack",
+    name: "Blackjack",
+    isUnlocked: () => game.blackjackUnlocked,
+    render: () => renderBJControls()
+  });
+  registerMiniGame({
+    id: "plinko",
+    name: "Plinko",
+    isUnlocked: () => game.plinkoUnlocked,
+    render: () => renderPlinkoBoard()
+  });
+}
+
+function renderMiniGames() {
+  for (const module of miniGameModules.values()) {
+    if (!module.isUnlocked || module.isUnlocked()) {
+      module.render?.();
+    }
+  }
+}
+
+function bindDeckControls() {
+  handsContainer.addEventListener("click", event => {
+    const button = event.target.closest(".deck-upgrade, .hotspin-upgrade, .ace-upgrade, .trim-lowest-upgrade");
+    if (!button || !handsContainer.contains(button)) return;
+    const index = Number(button.dataset.deckIndex);
+    if (!Number.isFinite(index)) return;
+    recordTelemetry("totalClicks", 1);
+    if (button.classList.contains("deck-upgrade")) {
+      upgradeDeckHands(index);
+    } else if (button.classList.contains("hotspin-upgrade")) {
+      upgradeDeckHotspins(index);
+    } else if (button.classList.contains("ace-upgrade")) {
+      upgradeDeckAces(index);
+    } else if (button.classList.contains("trim-lowest-upgrade")) {
+      upgradeDeckTrimLowest(index);
+    }
+  });
+}
+
+function bindControls() {
+  buyAutoBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (!spend(game.autoCost)) return;
+    playUpgradeClick();
+    game.autoUnlocked = true;
+    toast("Auto deal unlocked");
+    notifyStateChanged("buy-auto");
+    recordTelemetry("totalClicks", 1);
+  });
+
+  speedBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (game.speedLevel >= game.maxSpeedLevel) return;
+    if (!spend(game.speedCost)) return;
+    playUpgradeClick();
+    game.speedLevel++;
+    game.interval = getAutoDealDelay();
+    game.speedCost = Math.ceil(game.speedCost * APP_CONFIG.upgrade.speedCostGrowth + APP_CONFIG.upgrade.speedCostFlat);
+    if (game.autoRunning && !game.spinning) {
+      timerManager.clearTimeout(game.autoLoop);
+      runAutoDealLoop();
+    }
+    toast(`Speed improved: ${formatSeconds(game.interval)} auto delay`);
+    updateButtons();
+    notifyStateChanged("buy-speed");
+    recordTelemetry("totalClicks", 1);
+  });
+
+  buyDeckBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (!spend(game.deckCost)) return;
+    playUpgradeClick();
+    const next = game.decks.length + 1;
+    game.decks.push(createDeckTemplate(next));
+    game.deckCost = Math.ceil(game.deckCost * APP_CONFIG.upgrade.deckCostGrowth);
+    renderDecks();
+    notifyStateChanged("buy-deck");
+    recordTelemetry("totalClicks", 1);
+  });
+
+  buyBlackjackBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (!spend(game.blackjackCost)) return;
+    playUpgradeClick();
+    game.blackjackUnlocked = true;
+    updateSideGames();
+    updateButtons();
+    toast("Blackjack unlocked");
+    notifyStateChanged("buy-blackjack");
+    recordTelemetry("totalClicks", 1);
+  });
+
+  buyPlinkoBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (!spend(game.plinkoCost)) return;
+    playUpgradeClick();
+    game.plinkoUnlocked = true;
+    updateSideGames();
+    updateButtons();
+    toast("Plinko unlocked");
+    notifyStateChanged("buy-plinko");
+    recordTelemetry("totalClicks", 1);
+  });
+
+  buyPlinkoAutoBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (!spend(game.plinkoAutoCost)) return;
+    playUpgradeClick();
+    game.plinkoAutoUnlocked = true;
+    updateButtons();
+    notifyStateChanged("buy-plinko-auto");
+    recordTelemetry("totalClicks", 1);
+  });
+
+  dealBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    playDealClick();
+    recordTelemetry("totalClicks", 1);
+    emitMiniGameEvent("state:tick", { cycles: 1 });
+    deal();
+  });
+  autoBtn.addEventListener("click", () => {
+    recordTelemetry("totalClicks", 1);
+    toggleAutoDeal();
+  });
+  blackjackBtn.addEventListener("click", () => {
+    recordTelemetry("totalClicks", 1);
+    startBJ(betInput.value);
+  });
+  clearBjBetBtn.addEventListener("click", () => {
+    recordTelemetry("totalClicks", 1);
+    setBjBet(1);
+  });
+  betInput.addEventListener("input", () => {
+    bjBetDisplay.textContent = getBjBet();
+    updateButtons();
+  });
+  bjChipBtns.forEach(button => button.addEventListener("click", () => {
+    addBjChip(Number(button.dataset.chipValue));
+    recordTelemetry("totalClicks", 1);
+  }));
+  if (bjControls) bjControls.addEventListener("click", handleBjControl);
+
+  plinkoDropBtn.addEventListener("click", () => {
+    recordTelemetry("totalClicks", 1);
+    dropPlinkoChip();
+  });
+  plinkoRiskSlider.addEventListener("input", updatePlinkoSettings);
+  plinkoLayersSlider.addEventListener("input", updatePlinkoSettings);
+  clearPlinkoBetBtn.addEventListener("click", () => {
+    recordTelemetry("totalClicks", 1);
+    setPlinkoBet(1);
+  });
+  plinkoBetInput.addEventListener("input", () => {
+    plinkoBetDisplay.textContent = getPlinkoBet();
+    updateButtons();
+  });
+  plinkoBetChipBtns.forEach(button => button.addEventListener("click", () => {
+    addPlinkoChip(Number(button.dataset.chipValue));
+    recordTelemetry("totalClicks", 1);
+  }));
+  plinkoAutoBtn.addEventListener("click", () => {
+    recordTelemetry("totalClicks", 1);
+    togglePlinkoAuto();
+  });
+  panelToggleBtns.forEach(button => button.addEventListener("click", () => {
+    togglePanelMinimized(button.dataset.target);
+  }));
+}
+
+bus.on("state:changed", () => {
+  updateButtons();
+  updateSideGames();
+  updateScore();
+  renderMiniGames();
+});
+
+function initialize() {
+  setupMiniModules();
+  installAudioPrimers();
+  if (gameState.runtime.offlineSeed <= 0) gameState.runtime.offlineSeed = Date.now() & 0x7fffffff;
+  recordTelemetry("sessions", 1);
+  applyOfflineProgress();
   renderDecks();
-};
-
-buyBlackjackBtn.onclick = () => {
-  if (!spend(game.blackjackCost)) return;
-  game.blackjackUnlocked = true;
+  renderBJControls();
+  buildPlinkoMultipliers();
+  renderPlinkoBoard();
   updateSideGames();
-  updateButtons();
-  toast("Blackjack unlocked");
-};
+  setBjBet(bj.lastBet);
+  setPlinkoBet(plinko.lastBet);
+  bindDeckControls();
+  bindControls();
+  window.addEventListener("beforeunload", () => {
+    saveStateNow("beforeunload");
+    timerManager.clearAll();
+  });
+  notifyStateChanged("boot");
+  saveState("boot");
+}
 
-buyPlinkoBtn.onclick = () => {
-  if (!spend(game.plinkoCost)) return;
-  game.plinkoUnlocked = true;
-  updateSideGames();
-  updateButtons();
-  toast("Plinko unlocked");
-};
-
-buyPlinkoAutoBtn.onclick = () => {
-  if (!spend(game.plinkoAutoCost)) return;
-  game.plinkoAutoUnlocked = true;
-  updateButtons();
-  toast("Plinko autoplay unlocked");
-};
-
-dealBtn.onclick = deal;
-autoBtn.onclick = toggleAutoDeal;
-blackjackBtn.onclick = () => startBJ(betInput.value);
-clearBjBetBtn.onclick = () => setBjBet(1);
-betInput.oninput = () => {
-  bjBetDisplay.textContent = getBjBet();
-  updateButtons();
-};
-bjChipBtns.forEach(button => {
-  button.onclick = () => addBjChip(Number(button.dataset.chipValue));
-});
-plinkoDropBtn.onclick = dropPlinkoChip;
-plinkoRiskSlider.oninput = updatePlinkoSettings;
-plinkoLayersSlider.oninput = updatePlinkoSettings;
-clearPlinkoBetBtn.onclick = () => setPlinkoBet(1);
-plinkoBetInput.oninput = () => {
-  plinkoBetDisplay.textContent = getPlinkoBet();
-  updateButtons();
-};
-plinkoBetChipBtns.forEach(button => {
-  button.onclick = () => addPlinkoChip(Number(button.dataset.chipValue));
-});
-plinkoAutoBtn.onclick = togglePlinkoAuto;
-panelToggleBtns.forEach(button => {
-  button.onclick = () => togglePanelMinimized(button.dataset.target);
-});
-
-renderDecks();
-renderBJControls();
-buildPlinkoMultipliers();
-renderPlinkoBoard();
-updateSideGames();
-setBjBet(bj.lastBet);
-setPlinkoBet(plinko.lastBet);
-updateScore();
+initialize();
